@@ -221,7 +221,14 @@ pub async fn get_list_pm(
     };
 
     match sqlx::query_as::<_, ProjectPMDto>(
-                "SELECT * 
+                "SELECT id,
+                        project_id,
+                        pm_order,
+                        pm_description,
+                        url_file,
+                        is_verified,
+                        CAST(verified_at AS TEXT) as verified_at,
+                        CAST(created_at AS TEXT) AS created_at
                 FROM project_pm
                 WHERE project_id = $1
                 ORDER BY pm_order
@@ -267,7 +274,7 @@ pub async fn post_create_vendor(
     match sqlx::query_as::<_, Vendor>(
         "INSERT INTO vendor (name, address, email, phone_number) 
          VALUES ($1, $2, $3, $4)
-         RETURNING id, name, address, email, phone_number, CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at",
+         RETURNING id, name, address, email, phone_number",
     )
     .bind(&body.name)
     .bind(&body.address)
@@ -326,9 +333,7 @@ pub async fn put_edit_vendor(
              phone_number = $5,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, name, address, email, phone_number, 
-                   CAST(created_at AS TEXT) AS created_at,
-                   CAST(updated_at AS TEXT) AS updated_at"
+         RETURNING id, name, address, email, phone_number"
     )
     .bind(&body.id)
     .bind(&body.name)
@@ -380,9 +385,7 @@ pub async fn post_create_vendor_project(
         "INSERT INTO project 
             (vendor_id, name, description, pic_name, pic_email, pic_number, pm_count) 
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count, 
-         CAST(created_at AS TEXT) AS created_at,
-         CAST(updated_at AS TEXT) AS updated_at",
+         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count",
     )
     .bind(body.vendor_id)
     .bind(&body.name)
@@ -447,9 +450,7 @@ pub async fn put_edit_vendor_project(
              pm_count    = $8,
              updated_at  = NOW()
          WHERE id = $1
-         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count,
-                   CAST(created_at AS TEXT) AS created_at,
-                   CAST(updated_at AS TEXT) AS updated_at"
+         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count"
     )
     .bind(&body.id)
     .bind(&body.vendor_id)
