@@ -1,4 +1,4 @@
-use crate::AppState;
+use crate::{AppState, features::vendor::model::ProjectPM};
 use actix_web::{
     get,
     post,
@@ -10,7 +10,7 @@ use serde_json::json;
 use sqlx::{self};
 // use crate::util::decryption::get_decrypted;
 // use crate::util::validator::TokenClaims;
-use crate::features::admin::model::{ProjectQuery, Vendor, VendorDto, VendorQuery, Project, ProjectDto, ProjectPMDto, PMQuery, VendorDropdownDto};
+use crate::features::admin::model::{ProjectQuery, Vendor, VendorDto, VendorQuery, Project, ProjectDto, ProjectPMDto, PMQuery, VerifyPM};
 use crate::util::page_response_builder::{page_response_builder, page_response_extra_builder};
 
 #[get("/vendor")]
@@ -470,6 +470,61 @@ pub async fn put_edit_vendor_project(
                     HttpResponse::Ok().json(json!({
                         "message": format!("Project '{}' successfully updated.", project.name),
                         "project": project,
+                    }))
+                }
+                Err(e) => {
+                    HttpResponse::InternalServerError().json(json!({
+                        "error": format!("Failed to commit transaction: {}", e)
+                    }))
+                }
+            }
+        }
+        Err(error) => {
+            // 4. Rollback on failure
+            let _ = transaction.rollback().await;
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to update project: {}", error)
+            }))
+        }
+    }
+}
+
+
+#[put("/verify")]
+pub async fn put_edit_verify_pm(
+    state: Data<AppState>,
+    body: Json<VerifyPM>,
+) -> impl Responder {
+    // 1. Begin a new transaction
+    let mut transaction = match state.postgres.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to start transaction: {}", e)
+            }))
+        }
+    };
+
+    // 2. Update the Project within the transaction
+    match sqlx::query_as::<_, ProjectPMDto>(
+        "UPDATE project_pm
+         SET is_verified = $2,
+             verified_at = NOW()
+         WHERE id = $1
+         RETURNING id, project_id, pm_description, pm_order, url_file, is_verified, CAST(verified_at AS TEXT) AS verified_at, CAST(created_at AS TEXT) AS created_at"
+    )
+    .bind(&body.id)
+    .bind(&body.is_verified)
+    .fetch_one(&mut *transaction)
+    .await
+    {
+        Ok(project_pm) => {
+            // 3. Commit the transaction
+            match transaction.commit().await {
+                Ok(_) => {
+                    HttpResponse::Ok().json(json!({
+                        "message": format!("Project ID '{}' successfully updated.", project_pm.id),
+                        "project_pm": project_pm,
                     }))
                 }
                 Err(e) => {

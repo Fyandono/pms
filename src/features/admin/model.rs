@@ -42,13 +42,6 @@ pub struct VendorDto {
     pub count_project: i64
 }
 
-
-#[derive(Serialize, Deserialize, FromRow)]
-pub struct VendorDropdownDto {
-    pub id: i32,
-    pub name: String,
-}
-
 // --- Project Structure ---
 #[derive(Serialize, Deserialize, Debug, FromRow)]
 pub struct Project {
@@ -90,4 +83,11 @@ pub struct ProjectPMDto {
     pub is_verified: bool,
     pub verified_at: Option<String>, 
     pub created_at: String, 
+}
+
+// --- Project PM (Preventive Maintenance) Structure ---
+#[derive(Serialize, Deserialize, Debug, FromRow)]
+pub struct VerifyPM {
+    pub id: i32,
+    pub is_verified: bool,
 }
