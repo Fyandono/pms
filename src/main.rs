@@ -5,7 +5,14 @@ mod util;
 use database::postgres::get_postgres_client;
 use dotenv::dotenv;
 use features::admin::services::{
-    get_list_pm, get_list_project, get_list_vendor, post_create_vendor, post_create_vendor_project,
+    get_list_pm, 
+    get_list_project, 
+    get_list_vendor, 
+    get_dropdown_vendor,
+    post_create_vendor,
+    post_create_vendor_project,
+    put_edit_vendor,
+    put_edit_vendor_project
 };
 use sqlx::{Pool, Postgres};
 
@@ -34,10 +41,13 @@ async fn main() -> std::io::Result<()> {
             }))
             .service(index)
             .service(get_list_vendor)
+            .service(get_dropdown_vendor)
             .service(get_list_project)
             .service(get_list_pm)
             .service(post_create_vendor)
             .service(post_create_vendor_project)
+            .service(put_edit_vendor)
+            .service(put_edit_vendor_project)
         // .service(
         //     web::scope("dashboard")
         //         // .wrap(bearer_middleware)

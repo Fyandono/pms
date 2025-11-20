@@ -38,7 +38,15 @@ pub struct VendorDto {
     pub email: String,
     pub phone_number: String,
     pub created_at: String,
+    pub updated_at: String,
     pub count_project: i64
+}
+
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct VendorDropdownDto {
+    pub id: i32,
+    pub name: String,
 }
 
 // --- Project Structure ---
@@ -65,6 +73,7 @@ pub struct ProjectDto {
     pub pic_number: Option<String>,
     pub pm_count: i32,
     pub created_at: String, 
+    pub updated_at: String,
     pub count_pm_uploaded: i64,
     pub count_pm_verified: i64,
     pub count_pm_unverified: i64

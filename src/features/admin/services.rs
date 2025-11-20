@@ -1,14 +1,8 @@
-// servis
-// 1 Get List Vendor V
-// 2 Post Create Vendor
-// 3 Post Create Vendor's Project
-// 4 Get Vendor Project's Preventive Maintenance
-// 5 Get Vendor's Project V
-
-use crate::{AppState, features::admin::model::ProjectPMDto};
+use crate::AppState;
 use actix_web::{
     get,
     post,
+    put,
     web::{Data, Query, Json},
     HttpResponse, Responder,
 };
@@ -16,7 +10,7 @@ use serde_json::json;
 use sqlx::{self};
 // use crate::util::decryption::get_decrypted;
 // use crate::util::validator::TokenClaims;
-use crate::features::admin::model::{ProjectQuery, Vendor, VendorDto, VendorQuery, Project, ProjectDto, PMQuery};
+use crate::features::admin::model::{ProjectQuery, Vendor, VendorDto, VendorQuery, Project, ProjectDto, ProjectPMDto, PMQuery, VendorDropdownDto};
 use crate::util::page_response_builder::{page_response_builder, page_response_extra_builder};
 
 #[get("/vendor")]
@@ -45,12 +39,54 @@ pub async fn get_list_vendor(
                         v.email,
                         v.phone_number,
                         CAST(v.created_at AS TEXT) AS created_at,
+                        CAST(v.updated_at AS TEXT) AS updated_at,
                         COUNT(p.id) AS count_project
                     FROM vendor v
                     LEFT JOIN project p ON (p.vendor_id = v.id)
                     WHERE v.name ILIKE CONCAT('%',$1,'%')
                     GROUP BY v.id
                     ORDER BY v.name;",
+    )
+    .bind(name_filter)
+    .fetch_all(&state.postgres)
+    .await
+    {
+        Ok(vendors) => {
+            let response = page_response_builder(page, page_size, &vendors);
+            HttpResponse::Ok().json(response)
+        }
+        Err(error) => {
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    }
+    // }
+    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
+    // }
+}
+
+
+#[get("/dropdown-vendor")]
+pub async fn get_dropdown_vendor(
+    state: Data<AppState>,
+    query_parameter: Query<VendorQuery>,
+    // req_user: Option<ReqData<TokenClaims>>,
+) -> impl Responder {
+    // match req_user {
+    //     Some(claim) => {
+    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
+    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
+    //             Ok(admin_id) => admin_id,
+    //             Err(error) => {
+    //                 return HttpResponse::BadRequest()
+    //                     .json(json!({ "error": format!("{}", error)  }))
+    //             }
+    //         };
+    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
+    let page = query_parameter.page;
+    let page_size = query_parameter.page_size;
+    match sqlx::query_as::<_, VendorDropdownDto>(
+        "SELECT v.id, v.name
+        FROM vendor v",
     )
     .bind(name_filter)
     .fetch_all(&state.postgres)
@@ -98,6 +134,7 @@ pub async fn get_list_project(
                 v.email,
                 v.phone_number,
                 CAST(v.created_at AS TEXT) AS created_at,
+                CAST(v.updated_at AS TEXT) AS updated_at,
                 COUNT(p.id) AS count_project
             FROM vendor v
             LEFT JOIN project p ON (p.vendor_id = v.id)
@@ -135,6 +172,7 @@ pub async fn get_list_project(
                     p.pic_number,
                     p.pm_count,
                     CAST(p.created_at AS TEXT) AS created_at,
+                    CAST(p.updated_at AS TEXT) AS updated_at,
                     COALESCE(COUNT(pm.id), 0) AS count_pm_uploaded,
                     COALESCE(dpmv.count_pm_verified, 0) AS count_pm_verified,
                     COALESCE(COUNT(pm.id), 0) - COALESCE(dpmv.count_pm_verified, 0) AS count_pm_unverified
@@ -200,6 +238,7 @@ pub async fn get_list_pm(
                     p.pic_number,
                     p.pm_count,
                     CAST(p.created_at AS TEXT) AS created_at,
+                    CAST(p.updated_at AS TEXT) AS updated_at,
                     COALESCE(COUNT(pm.id), 0) AS count_pm_uploaded,
                     COALESCE(dpmv.count_pm_verified, 0) AS count_pm_verified,
                     COALESCE(COUNT(pm.id), 0) - COALESCE(dpmv.count_pm_verified, 0) AS count_pm_unverified
@@ -269,7 +308,7 @@ pub async fn post_create_vendor(
     match sqlx::query_as::<_, Vendor>(
         "INSERT INTO vendor (name, address, email, phone_number) 
          VALUES ($1, $2, $3, $4)
-         RETURNING id, name, address, email, phone_number, CAST(created_at AS TEXT) AS created_at",
+         RETURNING id, name, address, email, phone_number, CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at",
     )
     .bind(&body.name)
     .bind(&body.address)
@@ -304,6 +343,63 @@ pub async fn post_create_vendor(
         }
     }
 }
+#[put("/vendor")]
+pub async fn put_edit_vendor(
+    state: Data<AppState>,
+    body: Json<Vendor>,
+) -> impl Responder {
+    // 1. Begin a new transaction
+    let mut transaction = match state.postgres.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({ 
+                "error": format!("Failed to start transaction: {}", e) 
+            }))
+        }
+    };
+
+    // 2. Perform the UPDATE query using the transaction
+    match sqlx::query_as::<_, Vendor>(
+        "UPDATE vendor 
+         SET name = $2,
+             address = $3,
+             email = $4,
+             phone_number = $5,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, name, address, email, phone_number, 
+                   CAST(created_at AS TEXT) AS created_at,
+                   CAST(updated_at AS TEXT) AS updated_at"
+    )
+    .bind(&body.id)
+    .bind(&body.name)
+    .bind(&body.address)
+    .bind(&body.email)
+    .bind(&body.phone_number)
+    .fetch_one(&mut *transaction)
+    .await
+    {
+        Ok(vendor) => {
+            // 3. Commit the transaction
+            match transaction.commit().await {
+                Ok(_) => HttpResponse::Ok().json(json!({
+                    "message": format!("Vendor '{}' successfully updated.", vendor.name),
+                    "vendor": vendor,
+                })),
+                Err(e) => HttpResponse::InternalServerError().json(json!({ 
+                    "error": format!("Failed to commit transaction: {}", e) 
+                })),
+            }
+        }
+        Err(error) => {
+            // 4. Rollback on failure
+            let _ = transaction.rollback().await;
+            HttpResponse::InternalServerError().json(json!({ 
+                "error": format!("Failed to update vendor: {}", error) 
+            }))
+        }
+    }
+}
 
 #[post("/project")]
 pub async fn post_create_vendor_project(
@@ -325,7 +421,9 @@ pub async fn post_create_vendor_project(
         "INSERT INTO project 
             (vendor_id, name, description, pic_name, pic_email, pic_number, pm_count) 
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count, CAST(created_at AS TEXT) AS created_at",
+         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count, 
+         CAST(created_at AS TEXT) AS created_at,
+         CAST(updated_at AS TEXT) AS updated_at",
     )
     .bind(body.vendor_id)
     .bind(&body.name)
@@ -358,6 +456,74 @@ pub async fn post_create_vendor_project(
             let _ = transaction.rollback().await; 
             HttpResponse::InternalServerError().json(json!({ 
                 "error": format!("Failed to create project: {}", error) 
+            }))
+        }
+    }
+}
+
+#[put("/project")]
+pub async fn put_edit_vendor_project(
+    state: Data<AppState>,
+    body: Json<Project>,
+) -> impl Responder {
+    // 1. Begin a new transaction
+    let mut transaction = match state.postgres.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to start transaction: {}", e)
+            }))
+        }
+    };
+
+    // 2. Update the Project within the transaction
+    match sqlx::query_as::<_, Project>(
+        "UPDATE project
+         SET vendor_id   = $2,
+             name        = $3,
+             description = $4,
+             pic_name    = $5,
+             pic_email   = $6,
+             pic_number  = $7,
+             pm_count    = $8,
+             updated_at  = NOW()
+         WHERE id = $1
+         RETURNING id, vendor_id, name, description, pic_name, pic_email, pic_number, pm_count,
+                   CAST(created_at AS TEXT) AS created_at,
+                   CAST(updated_at AS TEXT) AS updated_at"
+    )
+    .bind(&body.id)
+    .bind(&body.vendor_id)
+    .bind(&body.name)
+    .bind(&body.description)
+    .bind(&body.pic_name)
+    .bind(&body.pic_email)
+    .bind(&body.pic_number)
+    .bind(&body.pm_count)
+    .fetch_one(&mut *transaction)
+    .await
+    {
+        Ok(project) => {
+            // 3. Commit the transaction
+            match transaction.commit().await {
+                Ok(_) => {
+                    HttpResponse::Ok().json(json!({
+                        "message": format!("Project '{}' successfully updated.", project.name),
+                        "project": project,
+                    }))
+                }
+                Err(e) => {
+                    HttpResponse::InternalServerError().json(json!({
+                        "error": format!("Failed to commit transaction: {}", e)
+                    }))
+                }
+            }
+        }
+        Err(error) => {
+            // 4. Rollback on failure
+            let _ = transaction.rollback().await;
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to update project: {}", error)
             }))
         }
     }
