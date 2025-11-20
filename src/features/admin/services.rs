@@ -64,47 +64,6 @@ pub async fn get_list_vendor(
     // }
 }
 
-
-#[get("/dropdown-vendor")]
-pub async fn get_dropdown_vendor(
-    state: Data<AppState>,
-    query_parameter: Query<VendorQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
-) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
-    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
-    let page = query_parameter.page;
-    let page_size = query_parameter.page_size;
-    match sqlx::query_as::<_, VendorDropdownDto>(
-        "SELECT v.id, v.name
-        FROM vendor v",
-    )
-    .bind(name_filter)
-    .fetch_all(&state.postgres)
-    .await
-    {
-        Ok(vendors) => {
-            let response = page_response_builder(page, page_size, &vendors);
-            HttpResponse::Ok().json(response)
-        }
-        Err(error) => {
-            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
-        }
-    }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
-}
-
 #[get("/project")]
 pub async fn get_list_project(
     state: Data<AppState>,
