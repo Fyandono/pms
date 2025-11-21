@@ -1,4 +1,4 @@
-use crate::{AppState, features::vendor::model::ProjectPM};
+use crate::{AppState};
 use actix_web::{
     get,
     post,
@@ -523,7 +523,7 @@ pub async fn put_edit_verify_pm(
             match transaction.commit().await {
                 Ok(_) => {
                     HttpResponse::Ok().json(json!({
-                        "message": format!("Project ID '{}' successfully updated.", project_pm.id),
+                        "message": format!("PM ID '{}' successfully updated.", project_pm.id),
                         "project_pm": project_pm,
                     }))
                 }
