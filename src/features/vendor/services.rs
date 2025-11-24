@@ -1,4 +1,4 @@
-use crate::AppState;
+use crate::{AppState};
 use actix_web::{
     get,
     post,
@@ -8,9 +8,9 @@ use actix_web::{
 };
 use serde_json::json;
 use sqlx::{self};
-// use crate::util::decryption::get_decrypted;
-// use crate::util::validator::TokenClaims;
+use crate::features::user::services::AuthClaims;
 use crate::features::vendor::model::{
+    VendorValidationDto,
     ProjectQuery, 
     Vendor, 
     VendorDto, 
@@ -18,67 +18,18 @@ use crate::features::vendor::model::{
     ProjectDto,
     ProjectPM,
     ProjectPMDto, 
-    PMQuery, 
-    VendorDropdownDto, 
-    VendorQuery};
-use crate::util::page_response_builder::{page_response_builder, page_response_extra_builder};
-
-#[get("/dropdown-vendor")]
-pub async fn get_dropdown_vendor_u(
-    state: Data<AppState>,
-    query_parameter: Query<VendorQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
-) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
-    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
-    let page = query_parameter.page;
-    let page_size = query_parameter.page_size;
-    match sqlx::query_as::<_, VendorDropdownDto>(
-        "SELECT v.id, v.name
-        FROM vendor v",
-    )
-    .bind(name_filter)
-    .fetch_all(&state.postgres)
-    .await
-    {
-        Ok(vendors) => {
-            let response = page_response_builder(page, page_size, &vendors);
-            HttpResponse::Ok().json(response)
-        }
-        Err(error) => {
-            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
-        }
-    }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
-}
+    ProjectValidationDto,
+    PMQuery};
+use crate::util::page_response_builder::{ page_response_extra_builder};
 
 #[get("/project")]
 pub async fn get_list_project_u(
     state: Data<AppState>,
     query_parameter: Query<ProjectQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
+    claims: AuthClaims
 ) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
+
+    let user_id = claims.0.sub;
     let vendor_id = query_parameter.vendor_id;
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
@@ -96,17 +47,19 @@ pub async fn get_list_project_u(
                 COUNT(p.id) AS count_project
             FROM vendor v
             LEFT JOIN project p ON (p.vendor_id = v.id)
-            WHERE v.id = $1
+            LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            WHERE v.id = $1 AND uv.vendor_id = CAST($2 AS UUID)
             GROUP BY v.id
             ORDER BY v.name;",
     )
     .bind(vendor_id)
+    .bind(user_id)
     .fetch_optional(&state.postgres)
     .await
     {
         Ok(Some(vendor)) => vendor,
         Ok(None) => {
-            return HttpResponse::NotFound().json(json!({ "error": "No vendor found with specified ID."  }))
+            return HttpResponse::NotFound().json(json!({ "error": "No vendor found with specified ID and User ID."  }))
         }
         Err(error) => {
             return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
@@ -156,27 +109,16 @@ pub async fn get_list_project_u(
                         HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
                     }
                 }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
 }
 
 #[get("/pm")]
 pub async fn get_list_pm_u(
     state: Data<AppState>,
     query_parameter: Query<PMQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
+    claims: AuthClaims
 ) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
+
+    let user_id = claims.0.sub;
     let project_id = query_parameter.project_id;
 
     // get project
@@ -203,16 +145,18 @@ pub async fn get_list_pm_u(
                 FROM project p
                 LEFT JOIN project_pm pm ON (pm.project_id = p.id)
                 LEFT JOIN data_pm_verificated dpmv ON (dpmv.project_id = p.id)
-                WHERE p.id = $1
+                LEFT JOIN users_vendor uv ON (uv.vendor_id = p.vendor_id)
+                WHERE p.id = $1 AND uv.user_id = CAST($2 AS UUID)
                 GROUP BY p.id, dpmv.count_pm_verified;",
     )
     .bind(project_id)
+    .bind(user_id)
     .fetch_optional(&state.postgres)
     .await
     {
         Ok(Some(project)) => project,
         Ok(None) => {
-            return HttpResponse::NotFound().json(json!({ "error": "No project found with specified ID."  }))
+            return HttpResponse::NotFound().json(json!({ "error": "No project found with specified ID and User ID."  }))
         }
         Err(error) => {
             return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
@@ -249,16 +193,40 @@ pub async fn get_list_pm_u(
                         HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
                     }
                 }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
 }
 
 #[put("/vendor")]
 pub async fn put_edit_vendor_u(
     state: Data<AppState>,
     body: Json<Vendor>,
+    claims: AuthClaims
 ) -> impl Responder {
+
+    // Validation
+    let user_id = claims.0.sub;
+    let vendor_id = body.id;
+
+    // Validate vendor
+    match sqlx::query_as::<_, VendorValidationDto>(
+        "SELECT v.id
+            FROM vendor v
+            LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            WHERE v.id = $1 AND uv.user_id = CAST($2 AS UUID)",
+    )
+    .bind(vendor_id)
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await
+    {
+        Ok(Some(vendor)) => vendor,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({ "error": "No vendor found with specified ID and User ID."  }))
+        }
+        Err(error) => {
+            return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    };
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -316,7 +284,34 @@ pub async fn put_edit_vendor_u(
 pub async fn post_create_vendor_project_u(
     state: Data<AppState>,
     body: Json<Project>,
+    claims: AuthClaims,
 ) -> impl Responder {
+
+    // Validation
+    let user_id = claims.0.sub;
+    let vendor_id = body.vendor_id;
+
+    // Validate vendor
+    match sqlx::query_as::<_, VendorDto>(
+        "SELECT v.id
+            FROM vendor v
+            LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            WHERE v.id = $1 AND uv.user_id = CAST($2 AS UUID)",
+    )
+    .bind(vendor_id)
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await
+    {
+        Ok(Some(vendor)) => vendor,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({ "error": "No vendor found with specified ID and User ID."  }))
+        }
+        Err(error) => {
+            return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    };
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -374,7 +369,34 @@ pub async fn post_create_vendor_project_u(
 pub async fn put_edit_vendor_project_u(
     state: Data<AppState>,
     body: Json<Project>,
+    claims: AuthClaims,
 ) -> impl Responder {
+
+    // Validation
+    let user_id = claims.0.sub;
+    let vendor_id = body.vendor_id;
+
+    // Validate vendor
+    match sqlx::query_as::<_, VendorValidationDto>(
+        "SELECT v.id
+            FROM vendor v
+            LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            WHERE v.id = $1 AND uv.user_id = CAST($2 AS UUID)",
+    )
+    .bind(vendor_id)
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await
+    {
+        Ok(Some(vendor)) => vendor,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({ "error": "No vendor found with specified ID and User ID."  }))
+        }
+        Err(error) => {
+            return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    };
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -440,7 +462,35 @@ pub async fn put_edit_vendor_project_u(
 pub async fn post_create_project_pm_u(
     state: Data<AppState>,
     body: Json<ProjectPM>,
+    claims: AuthClaims,
 ) -> impl Responder {
+
+    // Validation
+    let user_id = claims.0.sub;
+    let project_id = body.project_id;
+
+    // Validate vendor
+    match sqlx::query_as::<_, ProjectValidationDto>(
+        "SELECT p.id
+            FROM project p 
+            LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            LEFT JOIN vendor v ON (v.id = p.vendor_id)
+            WHERE p.id = $1 AND uv.user_id = CAST($2 AS UUID)",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await
+    {
+        Ok(Some(vendor)) => vendor,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({ "error": "No project found with specified ID and User ID."  }))
+        }
+        Err(error) => {
+            return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    };
+
     // 1. Begin new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -490,7 +540,35 @@ pub async fn post_create_project_pm_u(
 pub async fn put_edit_project_pm_u(
     state: Data<AppState>,
     body: Json<ProjectPM>,
+    claims: AuthClaims
 ) -> impl Responder {
+
+    // Validation
+    let user_id = claims.0.sub;
+    let project_id = body.project_id;
+
+    // Validate vendor
+    match sqlx::query_as::<_, ProjectValidationDto>(
+        "SELECT p.id
+            FROM project p
+            LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            LEFT JOIN vendor v ON (v.id = p.vendor_id)
+            WHERE p.id = $1 AND uv.user_id = CAST($2 AS UUID)",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await
+    {
+        Ok(Some(vendor)) => vendor,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({ "error": "No project found with specified ID and User ID."  }))
+        }
+        Err(error) => {
+            return HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    };
+
     // Require ID for update
     if body.id.is_none() {
         return HttpResponse::BadRequest().json(json!({

@@ -43,6 +43,18 @@ pub struct PMQuery {
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
+pub struct VendorValidationDto {
+    pub id: i32
+}
+
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct ProjectValidationDto {
+    pub id: i32
+}
+
+
+#[derive(Serialize, Deserialize, FromRow)]
 pub struct VendorDto {
     pub id: i32,
     pub name: String,
@@ -52,13 +64,6 @@ pub struct VendorDto {
     pub created_at: String,
     pub updated_at: String,
     pub count_project: i64
-}
-
-
-#[derive(Serialize, Deserialize, FromRow)]
-pub struct VendorDropdownDto {
-    pub id: i32,
-    pub name: String,
 }
 
 // --- Project Structure ---

@@ -1,12 +1,36 @@
 use serde::{Serialize, Deserialize};
 use sqlx::FromRow;
 
+#[derive(sqlx::FromRow, Debug, Serialize)]
+pub struct UserDto {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub is_active: bool,
+    pub created_at: String
+}
+
 #[derive(Deserialize)]
 pub struct VendorQuery {
     pub name: Option<String>,
     pub page: i32,
     pub page_size: i32,
 }
+
+#[derive(Deserialize)]
+pub struct UserQuery {
+    pub name: Option<String>,
+    pub page: i32,
+    pub page_size: i32,
+}
+
+#[derive(Deserialize)]
+pub struct UsersVendorQuery {
+    pub name: Option<String>,
+    pub page: i32,
+    pub page_size: i32,
+}
+
 
 #[derive(Deserialize)]
 pub struct ProjectQuery {
@@ -40,6 +64,12 @@ pub struct VendorDto {
     pub created_at: String,
     pub updated_at: String,
     pub count_project: i64
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct VendorDropdownDto {
+    pub id: i32,
+    pub name: String,
 }
 
 // --- Project Structure ---
@@ -90,4 +120,19 @@ pub struct ProjectPMDto {
 pub struct VerifyPM {
     pub id: i32,
     pub is_verified: bool,
+}
+
+// --- Users Vendor Structure ---
+#[derive(Serialize, Deserialize, Debug, FromRow)]
+pub struct UsersVendorDto {
+    pub user_id: String,
+    pub vendor_id: i32,
+    pub username: String,
+    pub vendor_name: String
+}
+
+#[derive(Serialize, Deserialize, Debug, FromRow)]
+pub struct UsersVendor {
+    pub user_id: String,
+    pub vendor_id: i32
 }

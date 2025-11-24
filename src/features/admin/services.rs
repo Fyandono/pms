@@ -8,27 +8,23 @@ use actix_web::{
 };
 use serde_json::json;
 use sqlx::{self};
-// use crate::util::decryption::get_decrypted;
-// use crate::util::validator::TokenClaims;
-use crate::features::admin::model::{ProjectQuery, Vendor, VendorDto, VendorQuery, Project, ProjectDto, ProjectPMDto, PMQuery, VerifyPM};
+use crate::features::user::services::{AuthClaims};
+use crate::features::admin::model::{ProjectQuery, Vendor, VendorDto, VendorQuery, Project, ProjectDto, ProjectPMDto, PMQuery, VerifyPM, VendorDropdownDto, UserQuery, UserDto, UsersVendorQuery, UsersVendorDto, UsersVendor};
 use crate::util::page_response_builder::{page_response_builder, page_response_extra_builder};
+use crate::util::require_role::{require_role};
 
 #[get("/vendor")]
 pub async fn get_list_vendor(
     state: Data<AppState>,
     query_parameter: Query<VendorQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
+    claims: AuthClaims,
 ) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
@@ -59,27 +55,55 @@ pub async fn get_list_vendor(
             HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
         }
     }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
+}
+
+
+#[get("/dropdown-vendor")]
+pub async fn get_dropdown_vendor(
+    state: Data<AppState>,
+    claims: AuthClaims,
+    query_parameter: Query<VendorQuery>
+) -> impl Responder {
+    
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
+    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
+    let page = query_parameter.page;
+    let page_size = query_parameter.page_size;
+    match sqlx::query_as::<_, VendorDropdownDto>(
+        "SELECT v.id, v.name
+        FROM vendor v
+        WHERE v.name ILIKE CONCAT('%', $1, '%')",
+    )
+    .bind(name_filter)
+    .fetch_all(&state.postgres)
+    .await
+    {
+        Ok(vendors) => {
+            let response = page_response_builder(page, page_size, &vendors);
+            HttpResponse::Ok().json(response)
+        }
+        Err(error) => {
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    }
 }
 
 #[get("/project")]
 pub async fn get_list_project(
     state: Data<AppState>,
     query_parameter: Query<ProjectQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
+    claims: AuthClaims
 ) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     let vendor_id = query_parameter.vendor_id;
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
@@ -157,27 +181,20 @@ pub async fn get_list_project(
                         HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
                     }
                 }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
 }
 
 #[get("/pm")]
 pub async fn get_list_pm(
     state: Data<AppState>,
     query_parameter: Query<PMQuery>,
-    // req_user: Option<ReqData<TokenClaims>>,
+    claims: AuthClaims
 ) -> impl Responder {
-    // match req_user {
-    //     Some(claim) => {
-    //         let decrypted_admin = get_decrypted(claim.id.clone()).await;
-    //         let admin_id = match from_str::<i32>(&decrypted_admin) {
-    //             Ok(admin_id) => admin_id,
-    //             Err(error) => {
-    //                 return HttpResponse::BadRequest()
-    //                     .json(json!({ "error": format!("{}", error)  }))
-    //             }
-    //         };
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     let project_id = query_parameter.project_id;
 
     // get project
@@ -250,16 +267,20 @@ pub async fn get_list_pm(
                         HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
                     }
                 }
-    // }
-    // _ => HttpResponse::Unauthorized().json("Unauthorized"),
-    // }
 }
 
 #[post("/vendor")]
 pub async fn post_create_vendor(
     state: Data<AppState>,
     body: Json<Vendor>,
+    claims: AuthClaims
 ) -> impl Responder {
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -309,11 +330,19 @@ pub async fn post_create_vendor(
         }
     }
 }
+
 #[put("/vendor")]
 pub async fn put_edit_vendor(
     state: Data<AppState>,
     body: Json<Vendor>,
+    claims: AuthClaims
 ) -> impl Responder {
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -369,7 +398,14 @@ pub async fn put_edit_vendor(
 pub async fn post_create_vendor_project(
     state: Data<AppState>,
     body: Json<Project>,
+    claims: AuthClaims
 ) -> impl Responder {
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -427,7 +463,14 @@ pub async fn post_create_vendor_project(
 pub async fn put_edit_vendor_project(
     state: Data<AppState>,
     body: Json<Project>,
+    claims: AuthClaims
 ) -> impl Responder {
+    
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -494,7 +537,14 @@ pub async fn put_edit_vendor_project(
 pub async fn put_edit_verify_pm(
     state: Data<AppState>,
     body: Json<VerifyPM>,
+    claims: AuthClaims
 ) -> impl Responder {
+        
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
     // 1. Begin a new transaction
     let mut transaction = match state.postgres.begin().await {
         Ok(t) => t,
@@ -539,6 +589,144 @@ pub async fn put_edit_verify_pm(
             let _ = transaction.rollback().await;
             HttpResponse::InternalServerError().json(json!({
                 "error": format!("Failed to update project: {}", error)
+            }))
+        }
+    }
+}
+
+
+#[get("/user")]
+pub async fn get_user(
+    state: Data<AppState>,
+    claims: AuthClaims,
+    query_parameter: Query<UserQuery>
+) -> impl Responder {
+    
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
+    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
+    let page = query_parameter.page;
+    let page_size = query_parameter.page_size;
+    match sqlx::query_as::<_, UserDto>(
+        "SELECT CAST(id AS TEXT) AS id, username, role, is_active, CAST(created_at AS TEXT) AS created_at
+        FROM users
+        WHERE username ILIKE CONCAT('%', $1, '%')",
+    )
+    .bind(name_filter)
+    .fetch_all(&state.postgres)
+    .await
+    {
+        Ok(users) => {
+            let response = page_response_builder(page, page_size, &users);
+            HttpResponse::Ok().json(response)
+        }
+        Err(error) => {
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    }
+}
+
+
+
+#[get("/users-vendor")]
+pub async fn get_users_vendor(
+    state: Data<AppState>,
+    claims: AuthClaims,
+    query_parameter: Query<UsersVendorQuery>
+) -> impl Responder {
+    
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
+    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
+    let page = query_parameter.page;
+    let page_size = query_parameter.page_size;
+    match sqlx::query_as::<_, UsersVendorDto>(
+        "SELECT CAST(uv.user_id AS TEXT) AS user_id, 
+        uv.vendor_id, 
+        u.username,
+        v.name AS vendor_name
+        FROM users_vendor uv
+        LEFT JOIN users u ON (CAST(u.id AS UUID) = uv.user_id)
+        LEFT JOIN vendor v ON (v.id = uv.vendor_id)
+        WHERE u.username ILIKE CONCAT('%', $1, '%') OR v.name ILIKE CONCAT('%', $1, '%')
+        ORDER by v.name, u.username",
+    )
+    .bind(name_filter)
+    .fetch_all(&state.postgres)
+    .await
+    {
+        Ok(users_vendor) => {
+            let response = page_response_builder(page, page_size, &users_vendor);
+            HttpResponse::Ok().json(response)
+        }
+        Err(error) => {
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    }
+}
+
+
+#[post("/users-vendor")]
+pub async fn post_users_vendor(
+    state: Data<AppState>,
+    claims: AuthClaims,
+    body: Json<UsersVendor>
+) -> impl Responder {
+    
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
+    // 1. Begin a new transaction
+    let mut transaction = match state.postgres.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({ 
+                "error": format!("Failed to start transaction: {}", e) 
+            }))
+        }
+    };
+    
+    // 2. Insert the new Project within the transaction
+    match sqlx::query_as::<_, UsersVendor>(
+        "INSERT INTO users_vendor 
+            (user_id, vendor_id) 
+         VALUES (CAST($1 AS UUID), $2)
+         RETURNING CAST(user_id AS TEXT) AS user_id, vendor_id",
+    )
+    .bind(&body.user_id)
+    .bind(body.vendor_id)
+    .fetch_one(&mut *transaction)
+    .await
+    {
+        Ok(user_vendor) => {
+            // 3. Commit the transaction
+            match transaction.commit().await {
+                Ok(_) => {
+                    HttpResponse::Created().json(json!({
+                        "message": format!("Project '{}' successfully created for user vendor {}.", user_vendor.user_id, user_vendor.vendor_id),
+                        "user_vendor": user_vendor,
+                    }))
+                }
+                Err(e) => {
+                    HttpResponse::InternalServerError().json(json!({ 
+                        "error": format!("Failed to commit transaction: {}", e) 
+                    }))
+                }
+            }
+        }
+        Err(error) => {
+            // 4. Rollback the transaction on failure
+            let _ = transaction.rollback().await; 
+            HttpResponse::InternalServerError().json(json!({ 
+                "error": format!("Failed to create project: {}", error) 
             }))
         }
     }

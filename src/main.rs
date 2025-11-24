@@ -9,7 +9,7 @@ use database::postgres::get_postgres_client;
 use dotenv::dotenv;
 use features::admin::services::{
     get_list_pm, get_list_project, get_list_vendor, post_create_vendor, post_create_vendor_project,
-    put_edit_vendor, put_edit_vendor_project, put_edit_verify_pm,
+    put_edit_vendor, put_edit_vendor_project, put_edit_verify_pm, get_dropdown_vendor, get_user, get_users_vendor, post_users_vendor
 };
 use features::vendor::services::{
     get_list_pm_u, get_list_project_u, post_create_project_pm_u, post_create_vendor_project_u,
@@ -51,13 +51,18 @@ async fn main() -> std::io::Result<()> {
                     .wrap(bearer_middleware.clone())
                     .service(index)
                     .service(get_list_vendor)
+                    .service(get_dropdown_vendor)
                     .service(get_list_project)
                     .service(get_list_pm)
                     .service(post_create_vendor)
                     .service(post_create_vendor_project)
                     .service(put_edit_vendor)
                     .service(put_edit_vendor_project)
-                    .service(put_edit_verify_pm),
+                    .service(put_edit_verify_pm)
+                    .service(get_user)
+                    .service(get_users_vendor)
+                    .service(post_users_vendor)
+                    ,
             )
             .service(
                 web::scope("u")

@@ -4,7 +4,7 @@ use actix_web::FromRequest;
 use actix_web::dev::Payload;
 use actix_web::http::header::AUTHORIZATION;
 use actix_web::{
-    Error, HttpResponse, Responder, post,
+    Error, HttpResponse, Responder, post, get,
     web::{Data, Json},
 };
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -14,12 +14,13 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use argon2::password_hash::rand_core::OsRng;
 use std::env;
 use uuid::Uuid;
+use crate::util::require_role::require_role;
 
 #[post("/register")]
 async fn register(state: Data<AppState>, payload: Json<RegisterRequest>) -> impl Responder {
-    let email = payload.email.trim().to_lowercase();
-    if email.is_empty() || payload.password.len() < 8 {
-        return HttpResponse::BadRequest().body("invalid email or password too short");
+    let username = payload.username.trim().to_lowercase();
+    if username.is_empty() || payload.password.len() < 8 {
+        return HttpResponse::BadRequest().body("invalid username or password too short");
     }
 
     // Hash password
@@ -41,18 +42,18 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>) -> impl
     let new_id = Uuid::new_v4().to_string();
 
     let res = sqlx::query(
-        "INSERT INTO users (id, email, password_hash, role, is_active) 
+        "INSERT INTO users (id, username, password_hash, role, is_active) 
          VALUES (CAST($1 AS UUID), $2, $3, 'vendor', true)",
     )
     .bind(&new_id)
-    .bind(&email)
+    .bind(&username)
     .bind(&password_hash)
     .execute(&state.postgres)
     .await;
 
     match res {
         Ok(_) => HttpResponse::Ok()
-            .json(serde_json::json!({ "id": new_id, "email": email, "role": "vendor" })),
+            .json(serde_json::json!({ "id": new_id, "username": username, "role": "vendor" })),
         Err(e) => {
             HttpResponse::InternalServerError().body("could not create user")
         }
@@ -61,10 +62,10 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>) -> impl
 
 #[post("/login")]
 async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Responder {
-    let email = payload.email.trim().to_lowercase();
+    let username = payload.username.trim().to_lowercase();
 
-    let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
-        .bind(&email)
+    let row = sqlx::query_as::<_, User>("SELECT CAST(id AS TEXT), username, password_hash, role, is_active FROM users WHERE username = $1")
+        .bind(&username)
         .fetch_one(&state.postgres)
         .await;
 
@@ -105,7 +106,7 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
 
     let claims = Claims {
         sub: user.id.to_string(),
-        email: user.email.clone(),
+        username: user.username.clone(),
         role: user.role.clone(),
         exp: expiration.timestamp() as usize,
     };
@@ -129,7 +130,7 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
 }
 
 // Extractor for Claims from Authorization header
-struct AuthClaims(Claims);
+pub struct AuthClaims(pub(crate) Claims);
 
 impl FromRequest for AuthClaims {
     type Error = Error;
@@ -177,24 +178,21 @@ impl FromRequest for AuthClaims {
 }
 
 // Example protected handler that requires any authenticated user
-async fn me(claims: AuthClaims) -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "user_id": claims.0.sub,
-        "email": claims.0.email,
-        "role": claims.0.role,
-    }))
-}
 
-// Role guard middleware function (can be used inside handler or as wrapper)
-fn require_role(claims: &Claims, allowed: &[&str]) -> bool {
-    allowed.iter().any(|r| *r == claims.role)
-}
+// #[get("/claim")]
+// async fn me(claims: AuthClaims) -> impl Responder {
+//     HttpResponse::Ok().json(serde_json::json!({
+//         "user_id": claims.0.sub,
+//         "email": claims.0.email,
+//         "role": claims.0.role,
+//     }))
+// }
 
 // Example admin-only route
-async fn admin_only(claims: AuthClaims) -> impl Responder {
-    if !require_role(&claims.0, &["admin"]) {
-        return HttpResponse::Forbidden().body("forbidden: admin only");
-    }
+// async fn admin_only(claims: AuthClaims) -> impl Responder {
+//     if !require_role(&claims.0, &["admin"]) {
+//         return HttpResponse::Forbidden().body("forbidden: admin only");
+//     }
 
-    HttpResponse::Ok().body(format!("Welcome, admin {}!", claims.0.email))
-}
+//     HttpResponse::Ok().body(format!("Welcome, admin {}!", claims.0.email))
+// }
