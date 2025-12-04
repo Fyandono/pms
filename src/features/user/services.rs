@@ -1,10 +1,11 @@
 use crate::AppState;
-use crate::features::user::model::{Claims, LoginRequest, RegisterRequest, User};
+use crate::features::user::model::{Claims, LoginRequest, RegisterRequest, EditUserRequest, User};
+use crate::util::require_role::require_role;
 use actix_web::FromRequest;
 use actix_web::dev::Payload;
 use actix_web::http::header::AUTHORIZATION;
 use actix_web::{
-    Error, HttpResponse, Responder, post, get,
+    Error, HttpResponse, Responder, post, put,
     web::{Data, Json},
 };
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -14,13 +15,23 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use argon2::password_hash::rand_core::OsRng;
 use std::env;
 use uuid::Uuid;
-use crate::util::require_role::require_role;
+use serde_json::json;
 
 #[post("/register")]
-async fn register(state: Data<AppState>, payload: Json<RegisterRequest>) -> impl Responder {
+async fn register(state: Data<AppState>, payload: Json<RegisterRequest>, claims: AuthClaims) -> impl Responder {
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
+    let user_id = claims.0.sub;
     let username = payload.username.trim().to_lowercase();
-    if username.is_empty() || payload.password.len() < 8 {
-        return HttpResponse::BadRequest().body("invalid username or password too short");
+    let name = payload.name.trim();
+    let role = payload.role.trim();
+    let is_active = payload.is_active;
+
+    if name.is_empty() || username.is_empty() || payload.password.len() < 8 || role.is_empty()  {
+        return HttpResponse::BadRequest().body("invalid name or invalid username or password too short");
     }
 
     // Hash password
@@ -42,20 +53,103 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>) -> impl
     let new_id = Uuid::new_v4().to_string();
 
     let res = sqlx::query(
-        "INSERT INTO users (id, username, password_hash, role, is_active) 
-         VALUES (CAST($1 AS UUID), $2, $3, 'vendor', true)",
+        "INSERT INTO users (id, username, password_hash, name, role, is_active, created_at, created_by) 
+         VALUES (CAST($1 AS UUID), $2, $3, $4, $5, $6, NOW(), CAST($7 AS UUID))",
     )
     .bind(&new_id)
     .bind(&username)
     .bind(&password_hash)
+    .bind(&name)
+    .bind(&role)
+    .bind(&is_active)
+    .bind(user_id)
     .execute(&state.postgres)
     .await;
 
     match res {
         Ok(_) => HttpResponse::Ok()
-            .json(serde_json::json!({ "id": new_id, "username": username, "role": "vendor" })),
+            .json(serde_json::json!({ "id": new_id})),
         Err(e) => {
-            HttpResponse::InternalServerError().body("could not create user")
+            return HttpResponse::InternalServerError().json(json!({"error":e.to_string()}));
+        }
+    }
+}
+
+#[put("/edit-user")]
+pub async fn update_user(
+    state: Data<AppState>,
+    payload: Json<EditUserRequest>,
+    claims: AuthClaims,
+) -> impl Responder {
+
+    // Role validator
+    if !require_role(&claims.0, &["admin"]) {
+        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
+    }
+
+    // Get User ID
+    let user_id = claims.0.sub;
+
+    // 1. Validate mandatory user ID
+    let user_to_edit_id = payload.id.clone();
+
+    // 2. Prepare optional fields and trim whitespace
+    let username = payload.username.as_ref().map(|s| s.trim().to_lowercase());
+    let name = payload.name.as_ref().map(|s| s.trim().to_string());
+    let role = payload.role.as_ref().map(|s| s.trim().to_string());
+    let is_active = payload.is_active;
+    
+    // 3. Conditional Password Hashing
+    let password_hash: Option<String> = match &payload.password {
+        Some(pw) if pw.len() >= 8 => {
+            let salt = SaltString::generate(&mut OsRng);
+            let argon2 = Argon2::default();
+            
+            match argon2.hash_password(pw.as_bytes(), &salt) {
+                Ok(ph) => Some(ph.to_string()),
+                Err(e) => {
+                    eprintln!("Password hashing failed: {}", e);
+                    return HttpResponse::InternalServerError().body("Failed to hash password.");
+                }
+            }
+        },
+        Some(pw) if pw.len() < 8 => {
+            return HttpResponse::BadRequest().body("Password must be at least 8 characters long.");
+        }
+        _ => None, // Password is None or empty string, do not update.
+    };
+
+    // 4. Build the dynamic SQL UPDATE statement
+    let res = sqlx::query(
+        "
+        UPDATE users SET 
+            username = COALESCE($2, username),
+            name = COALESCE($3, name),
+            role = COALESCE($4, role),
+            password_hash = COALESCE($5, password_hash),
+            is_active = COALESCE($6, is_active),
+            updated_at = NOW(),
+            updated_by = CAST($7 AS UUID)
+        WHERE id = CAST($1 AS UUID)
+        RETURNING id
+        ",
+    )
+    .bind(user_to_edit_id)              
+    .bind(username.as_deref())        
+    .bind(name.as_deref())             
+    .bind(role.as_deref())
+    .bind(password_hash.as_deref())  
+    .bind(is_active)
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await;
+
+    match res {
+        Ok(_) => HttpResponse::Ok()
+            .json(serde_json::json!({ "message": "User successfully updated." })),
+        Err(e) => {
+            eprintln!("Database error during user update: {}", e);
+            HttpResponse::InternalServerError().body("Could not update user.")
         }
     }
 }
@@ -64,7 +158,7 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>) -> impl
 async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Responder {
     let username = payload.username.trim().to_lowercase();
 
-    let row = sqlx::query_as::<_, User>("SELECT CAST(id AS TEXT), username, password_hash, role, is_active FROM users WHERE username = $1")
+    let row = sqlx::query_as::<_, User>("SELECT CAST(id AS TEXT), name, username, password_hash, role, is_active FROM users WHERE username = $1")
         .bind(&username)
         .fetch_one(&state.postgres)
         .await;
@@ -106,6 +200,7 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
 
     let claims = Claims {
         sub: user.id.to_string(),
+        name: user.name.to_string(),
         username: user.username.clone(),
         role: user.role.clone(),
         exp: expiration.timestamp() as usize,
@@ -123,7 +218,7 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
             "token_type": "bearer",
             "expires_in": exp_seconds
         })),
-        Err(e) => {
+        Err(_) => {
             HttpResponse::InternalServerError().body("could not create token")
         }
     }

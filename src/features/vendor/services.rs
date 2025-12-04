@@ -42,12 +42,16 @@ pub async fn get_list_project_u(
                 v.address,
                 v.email,
                 v.phone_number,
+                c.name AS created_by
                 CAST(v.created_at AS TEXT) AS created_at,
+                u.name AS updated_by,
                 CAST(v.updated_at AS TEXT) AS updated_at,
                 COUNT(p.id) AS count_project
             FROM vendor v
             LEFT JOIN project p ON (p.vendor_id = v.id)
             LEFT JOIN users_vendor uv ON (uv.vendor_id = v.id)
+            LEFT JOIN users c ON (c.id = v.created_by)
+            LEFT JOIN users u ON (u.id = v.updated_by)
             WHERE v.id = $1 AND uv.vendor_id = CAST($2 AS UUID)
             GROUP BY v.id
             ORDER BY v.name;",

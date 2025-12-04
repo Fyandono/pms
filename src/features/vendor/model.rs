@@ -61,7 +61,9 @@ pub struct VendorDto {
     pub address: String,
     pub email: String,
     pub phone_number: String,
+    pub created_by: String,
     pub created_at: String,
+    pub updated_by: String,
     pub updated_at: String,
     pub count_project: i64
 }
