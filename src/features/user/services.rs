@@ -1,37 +1,75 @@
 use crate::AppState;
-use crate::features::user::model::{Claims, LoginRequest, RegisterRequest, EditUserRequest, User};
-use crate::util::require_role::require_role;
+use crate::features::user::model::{Claims, LoginRequest, RegisterRequest, EditUserRequest, UserLoginDto, UserQuery, UserDto};
+use crate::util::page_response_builder::page_response_builder;
 use actix_web::FromRequest;
 use actix_web::dev::Payload;
 use actix_web::http::header::AUTHORIZATION;
 use actix_web::{
-    Error, HttpResponse, Responder, post, put,
-    web::{Data, Json},
+    Error, HttpResponse, Responder, post, put, get,
+    web::{Data, Json, Query},
 };
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
-use chrono::{Duration, Utc};
+use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use futures::future::{Ready, ready};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 use argon2::password_hash::rand_core::OsRng;
 use std::env;
 use uuid::Uuid;
 use serde_json::json;
 
+
+#[get("/user")]
+pub async fn get_user(
+    state: Data<AppState>,
+    claims: AuthClaims,
+    query_parameter: Query<UserQuery>
+) -> impl Responder {
+
+    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
+    let page = query_parameter.page;
+    let page_size = query_parameter.page_size;
+    match sqlx::query_as::<_, UserDto>(
+        "SELECT CAST(a.id AS TEXT) AS id, 
+        a.name, 
+        a.username,
+        r.name AS role, 
+        r.id AS role_id,
+        a.is_active, 
+        CAST(a.created_at AS TEXT) AS created_at, 
+        c.name AS created_by,
+        CAST(a.updated_at AS TEXT) AS updated_at, 
+        u.name AS updated_by
+        FROM users a
+        LEFT JOIN users c ON (c.id = a.created_by)
+        LEFT JOIN users u ON (u.id = a.updated_by)
+        LEFT JOIN role r ON (r.id = a.role_id)
+        WHERE a.username ILIKE CONCAT('%', $1, '%') OR a.name ILIKE CONCAT('%', $1, '%')
+        ORDER BY a.name, a.is_active DESC",
+    )
+    .bind(name_filter)
+    .fetch_all(&state.postgres)
+    .await
+    {
+        Ok(users) => {
+            let response = page_response_builder(page, page_size, &users);
+            HttpResponse::Ok().json(response)
+        }
+        Err(error) => {
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+        }
+    }
+}
+
 #[post("/register")]
 async fn register(state: Data<AppState>, payload: Json<RegisterRequest>, claims: AuthClaims) -> impl Responder {
-    // Role validator
-    if !require_role(&claims.0, &["admin"]) {
-        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
-    }
 
     let user_id = claims.0.sub;
     let username = payload.username.trim().to_lowercase();
     let name = payload.name.trim();
-    let role = payload.role.trim();
+    let role_id = payload.role_id;
     let is_active = payload.is_active;
 
-    if name.is_empty() || username.is_empty() || payload.password.len() < 8 || role.is_empty()  {
-        return HttpResponse::BadRequest().body("invalid name or invalid username or password too short");
+    if name.is_empty() || username.is_empty() || payload.password.len() < 8  {
+        return HttpResponse::BadRequest().json(json!({ "message": "invalid name or invalid username or password too short." }))
     }
 
     // Hash password
@@ -40,10 +78,6 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>, claims:
     let password_hash = argon2
         .hash_password(payload.password.as_bytes(), &salt)
         .map(|ph| ph.to_string());
-        // .map_err(|e| {
-        //     log::error!("hash error: {}", e);
-        //     ()
-        // });
 
     if password_hash.is_err() {
         return HttpResponse::InternalServerError().finish();
@@ -53,14 +87,14 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>, claims:
     let new_id = Uuid::new_v4().to_string();
 
     let res = sqlx::query(
-        "INSERT INTO users (id, username, password_hash, name, role, is_active, created_at, created_by) 
+        "INSERT INTO users (id, username, password_hash, name, role_id, is_active, created_at, created_by) 
          VALUES (CAST($1 AS UUID), $2, $3, $4, $5, $6, NOW(), CAST($7 AS UUID))",
     )
     .bind(&new_id)
     .bind(&username)
     .bind(&password_hash)
     .bind(&name)
-    .bind(&role)
+    .bind(&role_id)
     .bind(&is_active)
     .bind(user_id)
     .execute(&state.postgres)
@@ -82,11 +116,6 @@ pub async fn update_user(
     claims: AuthClaims,
 ) -> impl Responder {
 
-    // Role validator
-    if !require_role(&claims.0, &["admin"]) {
-        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
-    }
-
     // Get User ID
     let user_id = claims.0.sub;
 
@@ -96,7 +125,7 @@ pub async fn update_user(
     // 2. Prepare optional fields and trim whitespace
     let username = payload.username.as_ref().map(|s| s.trim().to_lowercase());
     let name = payload.name.as_ref().map(|s| s.trim().to_string());
-    let role = payload.role.as_ref().map(|s| s.trim().to_string());
+    let role_id = payload.role_id;
     let is_active = payload.is_active;
     
     // 3. Conditional Password Hashing
@@ -109,12 +138,12 @@ pub async fn update_user(
                 Ok(ph) => Some(ph.to_string()),
                 Err(e) => {
                     eprintln!("Password hashing failed: {}", e);
-                    return HttpResponse::InternalServerError().body("Failed to hash password.");
+                    return HttpResponse::InternalServerError().json(json!({ "message": "Failed to hash password" }));
                 }
             }
         },
         Some(pw) if pw.len() < 8 => {
-            return HttpResponse::BadRequest().body("Password must be at least 8 characters long.");
+            return HttpResponse::BadRequest().json(json!({ "message": "Password must be at least 8 characters long." }));
         }
         _ => None, // Password is None or empty string, do not update.
     };
@@ -125,7 +154,7 @@ pub async fn update_user(
         UPDATE users SET 
             username = COALESCE($2, username),
             name = COALESCE($3, name),
-            role = COALESCE($4, role),
+            role_id = COALESCE($4, role_id),
             password_hash = COALESCE($5, password_hash),
             is_active = COALESCE($6, is_active),
             updated_at = NOW(),
@@ -137,7 +166,7 @@ pub async fn update_user(
     .bind(user_to_edit_id)              
     .bind(username.as_deref())        
     .bind(name.as_deref())             
-    .bind(role.as_deref())
+    .bind(role_id)
     .bind(password_hash.as_deref())  
     .bind(is_active)
     .bind(user_id)
@@ -146,34 +175,62 @@ pub async fn update_user(
 
     match res {
         Ok(_) => HttpResponse::Ok()
-            .json(serde_json::json!({ "message": "User successfully updated." })),
+            .json(json!({ "message": "User successfully updated." })),
         Err(e) => {
             eprintln!("Database error during user update: {}", e);
-            HttpResponse::InternalServerError().body("Could not update user.")
+            HttpResponse::InternalServerError().json(json!({ "message": "Could not update user." }))
         }
     }
 }
 
 #[post("/login")]
 async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Responder {
+    use jsonwebtoken::{encode, Header, EncodingKey};
+    use argon2::{Argon2, PasswordHash, PasswordVerifier};
+    use chrono::{Utc, Duration};
+    use std::env;
+
     let username = payload.username.trim().to_lowercase();
 
-    let row = sqlx::query_as::<_, User>("SELECT CAST(id AS TEXT), name, username, password_hash, role, is_active FROM users WHERE username = $1")
+    let row = sqlx::query_as::<_, UserLoginDto>("
+    SELECT 
+        CAST(u.id AS TEXT), 
+        u.name, 
+        u.username,
+        u.password_hash,
+        u.role_id, 
+        r.name AS role,
+        u.is_active,
+        r.can_add_role,       
+        r.can_edit_role,      
+        r.can_add_user,       
+        r.can_edit_user,      
+        r.can_add_vendor,     
+        r.can_edit_vendor,    
+        r.can_add_project,    
+        r.can_edit_project,   
+        r.can_add_pm,         
+        r.can_edit_pm,        
+        r.can_verify_pm,
+        r.can_add_unit,
+        r.can_edit_unit       
+    FROM users u 
+    LEFT JOIN role r ON (r.id = u.role_id)
+    WHERE u.username = $1")
         .bind(&username)
         .fetch_one(&state.postgres)
         .await;
 
     let user = match row {
         Ok(u) => u,
-        Err(_) => return HttpResponse::Unauthorized().body("invalid credentials"),
+        Err(sqlx::Error::RowNotFound) => return HttpResponse::Unauthorized().json(json!({ "message": "Invalid credentials." })),
+        Err(_) => return HttpResponse::InternalServerError().json(json!({ "message": "Database error during login." })),
     };
 
-    // verify user active
     if !user.is_active {
-        return HttpResponse::Forbidden().body("account is not active");
+        return HttpResponse::Forbidden().json(json!({ "message": "Account is not active." }));
     }
 
-    // verify password
     let parsed_hash = match PasswordHash::new(&user.password_hash) {
         Ok(ph) => ph,
         Err(_) => {
@@ -186,10 +243,9 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
         .verify_password(payload.password.as_bytes(), &parsed_hash)
         .is_err()
     {
-        return HttpResponse::Unauthorized().body("invalid credentials");
+        return HttpResponse::Unauthorized().json(json!({ "message": "Invalid credentials." }));
     }
 
-    // Create JWT
     let secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let exp_seconds: i64 = env::var("JWT_EXP_SECONDS")
         .unwrap_or_else(|_| "3600".to_string())
@@ -202,8 +258,22 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
         sub: user.id.to_string(),
         name: user.name.to_string(),
         username: user.username.clone(),
-        role: user.role.clone(),
+        role: user.role,
+        role_id: user.role_id.clone(),
         exp: expiration.timestamp() as usize,
+        can_add_role: user.can_add_role,
+        can_edit_role: user.can_edit_role,
+        can_add_user: user.can_add_user,
+        can_edit_user: user.can_edit_user,
+        can_add_vendor: user.can_add_vendor,
+        can_edit_vendor: user.can_edit_vendor,
+        can_add_project: user.can_add_project,
+        can_edit_project: user.can_edit_project,
+        can_add_pm: user.can_add_pm,
+        can_edit_pm: user.can_edit_pm,
+        can_verify_pm: user.can_verify_pm,
+        can_add_unit: user.can_add_unit,
+        can_edit_unit: user.can_edit_unit
     };
 
     let token = encode(
@@ -219,7 +289,7 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
             "expires_in": exp_seconds
         })),
         Err(_) => {
-            HttpResponse::InternalServerError().body("could not create token")
+            HttpResponse::InternalServerError().json(json!({ "message": "Could not create token." }))
         }
     }
 }
@@ -271,23 +341,3 @@ impl FromRequest for AuthClaims {
         }
     }
 }
-
-// Example protected handler that requires any authenticated user
-
-// #[get("/claim")]
-// async fn me(claims: AuthClaims) -> impl Responder {
-//     HttpResponse::Ok().json(serde_json::json!({
-//         "user_id": claims.0.sub,
-//         "email": claims.0.email,
-//         "role": claims.0.role,
-//     }))
-// }
-
-// Example admin-only route
-// async fn admin_only(claims: AuthClaims) -> impl Responder {
-//     if !require_role(&claims.0, &["admin"]) {
-//         return HttpResponse::Forbidden().body("forbidden: admin only");
-//     }
-
-//     HttpResponse::Ok().body(format!("Welcome, admin {}!", claims.0.email))
-// }

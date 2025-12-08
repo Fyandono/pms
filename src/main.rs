@@ -7,20 +7,19 @@ use actix_web::{App, HttpServer, Responder, get, web::Data};
 use actix_web_httpauth::middleware::HttpAuthentication;
 use database::postgres::get_postgres_client;
 use dotenv::dotenv;
-use features::admin::services::{
+use features::vendor_project::services::{
     get_list_pm, get_list_project, get_list_vendor, post_create_vendor, post_create_vendor_project,
-    put_edit_vendor, put_edit_vendor_project, put_edit_verify_pm, get_dropdown_vendor, get_user, get_users_vendor, post_users_vendor,
+    put_edit_vendor, put_edit_vendor_project, put_edit_verify_pm, get_dropdown_vendor,
     post_create_project_pm, put_edit_project_pm, get_project_pm_file,
     get_detail_pm
 };
 use features::unit::services::{
     get_unit, post_create_unit, put_edit_unit
 };
-// use features::vendor::services::{
-//     get_list_pm_u, get_list_project_u, post_create_project_pm_u, post_create_vendor_project_u,
-//     put_edit_project_pm_u, put_edit_vendor_project_u, put_edit_vendor_u,
-// };
-use features::user::services::{register, login, update_user};
+use features::role::services::{
+    get_role, post_create_role, put_edit_role
+};
+use features::user::services::{register, login, update_user, get_user};
 use sqlx::{Pool, Postgres};
 use util::jwt_validator::validate_jwt;
 
@@ -48,7 +47,6 @@ async fn main() -> std::io::Result<()> {
 
     let cors = Cors::default()
         // .allowed_origin("http://localhost:5173") 
-        // .allowed_origin("http://10.70.66.19:5173")
         .allow_any_origin()
         .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
         .allowed_headers(vec![
@@ -70,27 +68,39 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("x")
                     .wrap(bearer_middleware.clone())
+                    // user
                     .service(register)
                     .service(update_user)
+                    .service(get_user)
+                    
+                    // vendor
                     .service(get_list_vendor)
                     .service(get_dropdown_vendor)
-                    .service(get_list_project)
-                    .service(get_list_pm)
                     .service(post_create_vendor)
-                    .service(post_create_vendor_project)
                     .service(put_edit_vendor)
+
+                    // project
+                    .service(get_list_project)
+                    .service(post_create_vendor_project)
                     .service(put_edit_vendor_project)
+
+                    // pm
+                    .service(get_list_pm)
                     .service(put_edit_verify_pm)
-                    .service(get_user)
-                    .service(get_users_vendor)
-                    .service(post_users_vendor)
                     .service(post_create_project_pm)
                     .service(put_edit_project_pm)
+                    .service(get_detail_pm)
+                    .service(get_project_pm_file)
+
+                    // unit
+                    .service(get_unit)
                     .service(post_create_unit)
                     .service(put_edit_unit)
-                    .service(get_unit)
-                    .service(get_project_pm_file)
-                    .service(get_detail_pm)
+
+                    // role
+                    .service(get_role)
+                    .service(post_create_role)
+                    .service(put_edit_role)
                     ,
             )
     })

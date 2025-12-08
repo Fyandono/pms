@@ -11,7 +11,6 @@ use sqlx::{self};
 use crate::features::user::services::{AuthClaims};
 use crate::features::unit::model::{Unit, UnitDto, UnitQuery};
 use crate::util::page_response_builder::{page_response_builder};
-use crate::util::require_role::{require_role};
 
 #[post("/unit")]
 pub async fn post_create_unit(
@@ -20,10 +19,8 @@ pub async fn post_create_unit(
     claims: AuthClaims,
 ) -> impl Responder {
 
-    // Role validator
-    if !require_role(&claims.0, &["admin"]) {
-        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
-    }
+    // Get User ID
+    let user_id = claims.0.sub;
 
     // 1. Begin new transaction
     let mut transaction = match state.postgres.begin().await {
@@ -38,11 +35,12 @@ pub async fn post_create_unit(
     // 2. Insert a new Project PM
     match sqlx::query_as::<_, UnitDto>(
         "INSERT INTO unit (name, is_active)
-         VALUES ($1, $2)
-         RETURNING id, name, is_active"
+         VALUES ($1, $2, NOW(), CAST($3 AS UUID))
+         RETURNING id, name, is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
     )
     .bind(&body.name)
     .bind(&body.is_active)
+    .bind(user_id)
     .fetch_one(&mut *transaction)
     .await
     {
@@ -76,10 +74,8 @@ pub async fn put_edit_unit(
     claims: AuthClaims,
 ) -> impl Responder {
 
-    // Role validator
-    if !require_role(&claims.0, &["admin"]) {
-        return HttpResponse::Forbidden().json(json!({"message":"You have no access to this feature.\nPlease contact admin for further information."}));
-    }
+    // Get User ID
+    let user_id = claims.0.sub;
 
     // 1. Begin new transaction
     let mut transaction = match state.postgres.begin().await {
@@ -95,13 +91,16 @@ pub async fn put_edit_unit(
     match sqlx::query_as::<_, UnitDto>(
         "UPDATE unit 
          SET name = $2,
-             is_active = $3
+             is_active = $3,
+             updated_at = NOW(),
+             updated_by = CAST($4 AS UUID)
          WHERE id = $1
-         RETURNING id, name, is_active"
+         RETURNING id, name, is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
     )
     .bind(&body.id)
     .bind(&body.name)
     .bind(&body.is_active)
+    .bind(user_id)
     .fetch_one(&mut *transaction)
     .await
     {
@@ -140,9 +139,12 @@ pub async fn get_unit(
     let is_active = query_parameter.is_active.clone();
 
     match sqlx::query_as::<_, UnitDto>(
-        "SELECT id, name, is_active
-        FROM unit
-        WHERE name ILIKE CONCAT('%', $1, '%') AND ($2 IS NULL OR is_active = CAST($2 AS BOOL))",
+        "SELECT un.id, un.name, un.is_active, c.name AS created_by, CAST(un.created_at AS TEXT) AS created_at, u.name AS updated_by, CAST(un.updated_at AS TEXT) AS updated_at
+        FROM unit un
+        LEFT JOIN users c ON (c.id = un.created_by)
+        LEFT JOIN users u ON (u.id = un.updated_by)
+        WHERE un.name ILIKE CONCAT('%', $1, '%') AND ($2 IS NULL OR un.is_active = CAST($2 AS BOOL))
+        ORDER BY un.name",
     )
     .bind(name_filter)
     .bind(is_active)
