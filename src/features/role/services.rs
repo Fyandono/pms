@@ -11,12 +11,11 @@ use sqlx::{self};
 use crate::features::user::services::{AuthClaims};
 use crate::features::role::model::{Role, RoleDto, RoleQuery};
 use crate::util::page_response_builder::{page_response_builder};
-use crate::util::require_role::{require_role};
 
 #[post("/role")]
 pub async fn post_create_role(
     state: Data<AppState>,
-    body: Json<Role>, // Use Role for the incoming body
+    body: Json<Role>,
     claims: AuthClaims,
 ) -> impl Responder {
 
@@ -39,15 +38,20 @@ pub async fn post_create_role(
         "INSERT INTO role (
             name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
             can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, is_active, created_at, created_by
+            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, 
+            can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
+            is_active, created_at, created_by
         )
          VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), CAST($16 AS UUID)
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), CAST($22 AS UUID)
          )
          RETURNING 
             id, name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
             can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
+            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, 
+            can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
+            is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, 
+            CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
     )
     .bind(&body.name)
     .bind(body.can_add_role)
@@ -63,6 +67,12 @@ pub async fn post_create_role(
     .bind(body.can_verify_pm)
     .bind(body.can_add_unit)
     .bind(body.can_edit_unit)
+    .bind(body.can_get_vendor)
+    .bind(body.can_get_user)
+    .bind(body.can_get_unit)
+    .bind(body.can_get_role)
+    .bind(body.can_get_project)
+    .bind(body.can_get_pm)
     .bind(body.is_active)
     .bind(user_id)
     .fetch_one(&mut *transaction)
@@ -138,14 +148,22 @@ pub async fn put_edit_role(
             can_verify_pm = $13, 
             can_add_unit = $14,
             can_edit_unit = $15,
-            is_active = $16,
+            can_get_vendor = $16,
+            can_get_user = $17,
+            can_get_unit = $18,
+            can_get_role = $19,
+            can_get_project = $20,
+            can_get_pm = $21,
+            is_active = $22,
             updated_at = NOW(),
-            updated_by = CAST($17 AS UUID)
+            updated_by = CAST($23 AS UUID)
          WHERE id = $1
          RETURNING 
             id, name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
             can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
+            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit,
+            can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
+            is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
     )
     .bind(role_id) 
     .bind(&body.name)
@@ -162,6 +180,12 @@ pub async fn put_edit_role(
     .bind(body.can_verify_pm) 
     .bind(body.can_add_unit)
     .bind(body.can_edit_unit)
+    .bind(body.can_get_vendor)
+    .bind(body.can_get_user)
+    .bind(body.can_get_unit)
+    .bind(body.can_get_role)
+    .bind(body.can_get_project)
+    .bind(body.can_get_pm)
     .bind(body.is_active)
     .bind(user_id)
     .fetch_one(&mut *transaction)
@@ -200,7 +224,6 @@ pub async fn put_edit_role(
 #[get("/role")]
 pub async fn get_role(
     state: Data<AppState>,
-    claims: AuthClaims,
     query_parameter: Query<RoleQuery>
 ) -> impl Responder {
 
@@ -212,7 +235,9 @@ pub async fn get_role(
     match sqlx::query_as::<_, RoleDto>(
         "SELECT  r.id, r.name, r.can_add_role, r.can_edit_role, r.can_add_user, r.can_edit_user, 
             r.can_add_vendor, r.can_edit_vendor, r.can_add_project, r.can_edit_project, 
-            r.can_add_pm, r.can_edit_pm, can_add_unit, can_edit_unit, r.can_verify_pm, r.is_active, CAST(r.created_at AS TEXT), c.username AS created_by, CAST(r.updated_at AS TEXT), u.username AS updated_by
+            r.can_add_pm, r.can_edit_pm, can_add_unit, can_edit_unit, r.can_verify_pm,
+            r.can_get_user, r.can_get_vendor, r.can_get_unit, r.can_get_role, r.can_get_project, r.can_get_pm,
+            r.is_active, CAST(r.created_at AS TEXT), c.username AS created_by, CAST(r.updated_at AS TEXT), u.username AS updated_by
         FROM role r
         LEFT JOIN users c ON (c.id = r.created_by)
         LEFT JOIN users u ON (u.id = r.updated_by)

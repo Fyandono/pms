@@ -18,6 +18,14 @@ pub struct Role {
     pub can_verify_pm: bool,
     pub can_add_unit: bool,
     pub can_edit_unit: bool,
+    
+    pub can_get_user: bool,
+    pub can_get_unit: bool,
+    pub can_get_vendor: bool,
+    pub can_get_role: bool,
+    pub can_get_project: bool,
+    pub can_get_pm: bool,
+
     pub is_active: bool,
 }
 
@@ -38,6 +46,14 @@ pub struct RoleDto {
     pub can_verify_pm: bool,
     pub can_add_unit: bool,
     pub can_edit_unit: bool,
+
+    pub can_get_user: bool,
+    pub can_get_unit: bool,
+    pub can_get_vendor: bool,
+    pub can_get_role: bool,
+    pub can_get_project: bool,
+    pub can_get_pm: bool,
+
     pub is_active: bool,
     pub created_at: Option<String>,
     pub created_by: Option<String>,

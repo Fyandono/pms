@@ -57,7 +57,14 @@ pub struct UserLoginDto {
     pub can_edit_pm: bool,
     pub can_verify_pm: bool,
     pub can_add_unit: bool,
-    pub can_edit_unit: bool
+    pub can_edit_unit: bool,
+
+    pub can_get_user: bool,
+    pub can_get_unit: bool,
+    pub can_get_vendor: bool,
+    pub can_get_role: bool,
+    pub can_get_project: bool,
+    pub can_get_pm: bool,
 }
 // -----------------------------------------------------------
 
@@ -112,7 +119,14 @@ pub struct Claims {
     pub can_verify_pm: bool,
 
     pub can_add_unit: bool,
-    pub can_edit_unit: bool
+    pub can_edit_unit: bool,
+
+    pub can_get_vendor: bool,
+    pub can_get_user: bool,
+    pub can_get_unit: bool,
+    pub can_get_role: bool,
+    pub can_get_project: bool,
+    pub can_get_pm: bool
     
 }
 

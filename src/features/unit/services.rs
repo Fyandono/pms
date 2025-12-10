@@ -129,7 +129,6 @@
     #[get("/unit")]
     pub async fn get_unit(
         state: Data<AppState>,
-        claims: AuthClaims,
         query_parameter: Query<UnitQuery>
     ) -> impl Responder {
 

@@ -21,7 +21,6 @@ use chrono::{Utc, Duration};
 #[get("/user")]
 pub async fn get_user(
     state: Data<AppState>,
-    claims: AuthClaims,
     query_parameter: Query<UserQuery>
 ) -> impl Responder {
 
@@ -210,7 +209,13 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
         r.can_edit_pm,        
         r.can_verify_pm,
         r.can_add_unit,
-        r.can_edit_unit       
+        r.can_edit_unit,
+        r.can_get_vendor,
+        r.can_get_user,
+        r.can_get_unit,
+        r.can_get_role,
+        r.can_get_project,
+        r.can_get_pm
     FROM users u 
     LEFT JOIN role r ON (r.id = u.role_id)
     WHERE u.username = $1")
@@ -270,7 +275,13 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
         can_edit_pm: user.can_edit_pm,
         can_verify_pm: user.can_verify_pm,
         can_add_unit: user.can_add_unit,
-        can_edit_unit: user.can_edit_unit
+        can_edit_unit: user.can_edit_unit,
+        can_get_vendor: user.can_get_vendor,
+        can_get_user: user.can_get_user,
+        can_get_unit: user.can_get_unit,
+        can_get_role: user.can_get_role,
+        can_get_project: user.can_get_project,
+        can_get_pm: user.can_get_pm
     };
 
     let token = encode(
@@ -318,7 +329,13 @@ async fn change_password(state: Data<AppState>, payload: Json<ChangePasswordRequ
         r.can_edit_pm,        
         r.can_verify_pm,
         r.can_add_unit,
-        r.can_edit_unit       
+        r.can_edit_unit,
+        r.can_get_vendor,
+        r.can_get_user,
+        r.can_get_unit,
+        r.can_get_role,
+        r.can_get_project,
+        r.can_get_pm
     FROM users u 
     LEFT JOIN role r ON (r.id = u.role_id)
     WHERE u.id = CAST($1 AS UUID)")
@@ -398,71 +415,6 @@ async fn change_password(state: Data<AppState>, payload: Json<ChangePasswordRequ
     }
 }
 
-// #[put("/change-password")]
-// pub async fn put_change_password(
-//     state: Data<AppState>,
-//     payload: Json<ChangePasswordRequest>,
-//     claims: AuthClaims,
-// ) -> impl Responder {
-
-//     // Get User ID
-//     let user_id = claims.0.sub;
-    
-//     // Password
-//     let old_password = payload.password;
-//     let new_password = payload.new_password;
-
-//     // 3. Conditional Password Hashing
-//     let password_hash: Option<String> = match &payload.password {
-//         Some(pw) if pw.len() >= 8 => {
-//             let salt = SaltString::generate(&mut OsRng);
-//             let argon2 = Argon2::default();
-            
-//             match argon2.hash_password(pw.as_bytes(), &salt) {
-//                 Ok(ph) => Some(ph.to_string()),
-//                 Err(e) => {
-//                     eprintln!("Password hashing failed: {}", e);
-//                     return HttpResponse::InternalServerError().json(json!({ "message": "Failed to hash password" }));
-//                 }
-//             }
-//         },
-//         Some(pw) if pw.len() < 8 => {
-//             return HttpResponse::BadRequest().json(json!({ "message": "Password must be at least 8 characters long." }));
-//         }
-//         _ => None, // Password is None or empty string, do not update.
-//     };
-
-//     // 4. Build the dynamic SQL UPDATE statement
-//     let res = sqlx::query(
-//         "
-//         UPDATE users SET 
-//             username = COALESCE($2, username),
-//             name = COALESCE($3, name),
-//             role_id = COALESCE($4, role_id),
-//             password_hash = COALESCE($5, password_hash),
-//             is_active = COALESCE($6, is_active),
-//             updated_at = NOW(),
-//             updated_by = CAST($7 AS UUID)
-//         WHERE id = CAST($1 AS UUID)
-//         RETURNING id
-//         ",
-//     )
-//     .bind(password_hash.as_deref())  
-//     .bind(user_id)
-//     .fetch_optional(&state.postgres)
-//     .await;
-
-//     match res {
-//         Ok(_) => HttpResponse::Ok()
-//             .json(json!({ "message": "Password successfully updated." })),
-//         Err(e) => {
-//             eprintln!("Database error during password update: {}", e);
-//             HttpResponse::InternalServerError().json(json!({ "message": "Could not update password." }))
-//         }
-//     }
-// }
-
-// Extractor for Claims from Authorization header
 pub struct AuthClaims(pub(crate) Claims);
 
 impl FromRequest for AuthClaims {

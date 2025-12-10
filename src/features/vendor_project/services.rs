@@ -8,14 +8,13 @@ use actix_web::{
 };
 use actix_multipart::Multipart;
 use serde_json::json;
-use sqlx::{self, types::Json as SqlxJson};
+use sqlx::{self};
 use crate::features::user::services::{AuthClaims};
 use crate::features::vendor_project::model::{ProjectQuery,
     Vendor, VendorDto, VendorQuery, Project, ProjectDto, 
     ProjectPMDto, PMQuery, VerifyPM, VendorDropdownDto,
     ProjectPM, ProjectPMData, FilePathResult, PMDetailQuery, NoteEntry};
 use crate::util::page_response_builder::{page_response_builder, page_response_extra_builder};
-use crate::util::require_role::{require_role};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -28,7 +27,6 @@ use std::{borrow::Cow, collections::HashMap};
 pub async fn get_list_vendor(
     state: Data<AppState>,
     query_parameter: Query<VendorQuery>,
-    claims: AuthClaims,
 ) -> impl Responder {
 
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
@@ -70,7 +68,6 @@ pub async fn get_list_vendor(
 #[get("/dropdown-vendor")]
 pub async fn get_dropdown_vendor(
     state: Data<AppState>,
-    claims: AuthClaims,
     query_parameter: Query<VendorQuery>
 ) -> impl Responder {
 
@@ -100,7 +97,6 @@ pub async fn get_dropdown_vendor(
 pub async fn get_list_project(
     state: Data<AppState>,
     query_parameter: Query<ProjectQuery>,
-    claims: AuthClaims
 ) -> impl Responder {
 
     let vendor_id = query_parameter.vendor_id;
@@ -716,71 +712,6 @@ pub async fn put_edit_verify_pm(
     }
 }
 
-// #[put("/verify")]
-// pub async fn put_edit_verify_pm(
-//     state: Data<AppState>,
-//     body: Json<VerifyPM>,
-//     claims: AuthClaims
-// ) -> impl Responder {
-
-//     // Get user id
-//     let user_id = &claims.0.sub;
-    
-//     // 1. Begin a new transaction
-//     let mut transaction = match state.postgres.begin().await {
-//         Ok(t) => t,
-//         Err(e) => {
-//             return HttpResponse::InternalServerError().json(json!({
-//                 "error": format!("Failed to start transaction: {}", e)
-//             }))
-//         }
-//     };
-
-//     // 2. Update the Project within the transaction
-//     match sqlx::query_as::<_, VerifyPM>(
-//         "UPDATE project_pm
-//          SET is_verified = $2,
-//              note = $3,
-//              pm_completion_date = CAST($4 AS DATE),
-//              verified_at = NOW(),
-//              verified_by = CAST($5 AS UUID)
-//          WHERE id = $1
-//          RETURNING id, is_verified, CAST(pm_completion_date AS TEXT), note"
-//     )
-//     .bind(&body.id)
-//     .bind(&body.is_verified)
-//     .bind(&body.note)
-//     .bind(&body.pm_completion_date)
-//     .bind(user_id)
-//     .fetch_one(&mut *transaction)
-//     .await
-//     {
-//         Ok(project_pm) => {
-//             // 3. Commit the transaction
-//             match transaction.commit().await {
-//                 Ok(_) => {
-//                     HttpResponse::Ok().json(json!({
-//                         "message": format!("PM ID '{}' successfully updated.", project_pm.id),
-//                         "project_pm": project_pm,
-//                     }))
-//                 }
-//                 Err(e) => {
-//                     HttpResponse::InternalServerError().json(json!({
-//                         "error": format!("Failed to commit transaction: {}", e)
-//                     }))
-//                 }
-//             }
-//         }
-//         Err(error) => {
-//             // 4. Rollback on failure
-//             let _ = transaction.rollback().await;
-//             HttpResponse::InternalServerError().json(json!({
-//                 "error": format!("Failed to update project: {}", error)
-//             }))
-//         }
-//     }
-// }
-
 #[post("/pm")]
 pub async fn post_create_project_pm(
     state: Data<AppState>,
@@ -1287,10 +1218,7 @@ pub async fn get_project_pm_file(
 pub async fn get_detail_pm(
     state: Data<AppState>,
     query_parameter: Query<PMDetailQuery>,
-    claims: AuthClaims
 ) -> impl Responder {
-
-    
 
     let pm_id = query_parameter.pm_id;
 
