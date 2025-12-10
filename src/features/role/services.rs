@@ -19,11 +19,9 @@ pub async fn post_create_role(
     claims: AuthClaims,
 ) -> impl Responder {
 
-    // Get user id
     let user_id = claims.0.sub;
 
-    // 1. Begin new transaction
-    let mut transaction = match state.postgres.begin().await {
+    let mut transaction = match state.db.begin().await {
         Ok(t) => t,
         Err(e) => {
             return HttpResponse::InternalServerError().json(json!({
@@ -32,26 +30,18 @@ pub async fn post_create_role(
         }
     };
 
-    // 2. Insert a new Role
-    // Using direct access to properties on the body (e.g., body.name)
-    match sqlx::query_as::<_, RoleDto>(
+    // MySQL INSERT: Use '?' placeholders and remove RETURNING
+    match sqlx::query(
         "INSERT INTO role (
-            name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
-            can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, 
-            can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
-            is_active, created_at, created_by
-        )
-         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), CAST($22 AS UUID)
-         )
-         RETURNING 
-            id, name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
-            can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, 
-            can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
-            is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, 
-            CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
+                name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
+                can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
+                can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, 
+                can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
+                is_active, created_at, created_by
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?
+            )"
     )
     .bind(&body.name)
     .bind(body.can_add_role)
@@ -75,15 +65,14 @@ pub async fn post_create_role(
     .bind(body.can_get_pm)
     .bind(body.is_active)
     .bind(user_id)
-    .fetch_one(&mut *transaction)
+    .execute(&mut *transaction)
     .await
     {
-        Ok(role) => {
-            // 3. Commit the transaction
+        Ok(_) => {
+            // Commit the transaction
             match transaction.commit().await {
                 Ok(_) => HttpResponse::Created().json(json!({
                     "message": "Role successfully created.".to_string(),
-                    "role": role,
                 })),
                 Err(e) => HttpResponse::InternalServerError().json(json!({
                     "error": format!("Failed to commit transaction: {}", e)
@@ -91,7 +80,7 @@ pub async fn post_create_role(
             }
         }
         Err(error) => {
-            // 4. Rollback on failure
+            // Rollback on failure
             let _ = transaction.rollback().await;
             HttpResponse::InternalServerError().json(json!({
                 "error": format!("Failed to create role: {}", error)
@@ -103,14 +92,12 @@ pub async fn post_create_role(
 #[put("/role")]
 pub async fn put_edit_role(
     state: Data<AppState>,
-    body: Json<Role>, // Uses the Role struct for the body
+    body: Json<Role>,
     claims: AuthClaims,
 ) -> impl Responder {
 
-    // Get user id
     let user_id = claims.0.sub;
 
-    // Ensure the ID is present for an update operation
     let role_id = match body.id {
         Some(id) => id,
         None => {
@@ -120,8 +107,7 @@ pub async fn put_edit_role(
         }
     };
 
-    // 1. Begin new transaction
-    let mut transaction = match state.postgres.begin().await {
+    let mut transaction = match state.db.begin().await {
         Ok(t) => t,
         Err(e) => {
             return HttpResponse::InternalServerError().json(json!({
@@ -130,73 +116,74 @@ pub async fn put_edit_role(
         }
     };
 
-    // 2. Execute the UPDATE query for the 'role' table
-    match sqlx::query_as::<_, RoleDto>(
+    // MySQL UPDATE: Use '?' placeholders and remove RETURNING
+    match sqlx::query(
         "UPDATE role 
          SET 
-            name = $2, 
-            can_add_role = $3, 
-            can_edit_role = $4, 
-            can_add_user = $5, 
-            can_edit_user = $6, 
-            can_add_vendor = $7, 
-            can_edit_vendor = $8, 
-            can_add_project = $9, 
-            can_edit_project = $10, 
-            can_add_pm = $11, 
-            can_edit_pm = $12, 
-            can_verify_pm = $13, 
-            can_add_unit = $14,
-            can_edit_unit = $15,
-            can_get_vendor = $16,
-            can_get_user = $17,
-            can_get_unit = $18,
-            can_get_role = $19,
-            can_get_project = $20,
-            can_get_pm = $21,
-            is_active = $22,
+            name = ?, 
+            can_add_role = ?, 
+            can_edit_role = ?, 
+            can_add_user = ?, 
+            can_edit_user = ?, 
+            can_add_vendor = ?, 
+            can_edit_vendor = ?, 
+            can_add_project = ?, 
+            can_edit_project = ?, 
+            can_add_pm = ?, 
+            can_edit_pm = ?, 
+            can_verify_pm = ?, 
+            can_add_unit = ?,
+            can_edit_unit = ?,
+            can_get_vendor = ?,
+            can_get_user = ?,
+            can_get_unit = ?,
+            can_get_role = ?,
+            can_get_project = ?,
+            can_get_pm = ?,
+            is_active = ?,
             updated_at = NOW(),
-            updated_by = CAST($23 AS UUID)
-         WHERE id = $1
-         RETURNING 
-            id, name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
-            can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit,
-            can_get_vendor, can_get_user, can_get_unit, can_get_role, can_get_project, can_get_pm,
-            is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
+            updated_by = ?
+         WHERE id = ?"
     )
-    .bind(role_id) 
-    .bind(&body.name)
-    .bind(body.can_add_role) 
-    .bind(body.can_edit_role)
-    .bind(body.can_add_user) 
-    .bind(body.can_edit_user) 
-    .bind(body.can_add_vendor) 
-    .bind(body.can_edit_vendor) 
-    .bind(body.can_add_project)
-    .bind(body.can_edit_project) 
-    .bind(body.can_add_pm)
-    .bind(body.can_edit_pm) 
-    .bind(body.can_verify_pm) 
-    .bind(body.can_add_unit)
-    .bind(body.can_edit_unit)
-    .bind(body.can_get_vendor)
-    .bind(body.can_get_user)
-    .bind(body.can_get_unit)
-    .bind(body.can_get_role)
-    .bind(body.can_get_project)
-    .bind(body.can_get_pm)
-    .bind(body.is_active)
-    .bind(user_id)
-    .fetch_one(&mut *transaction)
+    .bind(&body.name) // 1
+    .bind(body.can_add_role) // 2
+    .bind(body.can_edit_role) // 3
+    .bind(body.can_add_user) // 4
+    .bind(body.can_edit_user) // 5
+    .bind(body.can_add_vendor) // 6
+    .bind(body.can_edit_vendor) // 7
+    .bind(body.can_add_project) // 8
+    .bind(body.can_edit_project) // 9
+    .bind(body.can_add_pm) // 10
+    .bind(body.can_edit_pm) // 11
+    .bind(body.can_verify_pm) // 12
+    .bind(body.can_add_unit) // 13
+    .bind(body.can_edit_unit) // 14
+    .bind(body.can_get_vendor) // 15
+    .bind(body.can_get_user) // 16
+    .bind(body.can_get_unit) // 17
+    .bind(body.can_get_role) // 18
+    .bind(body.can_get_project) // 19
+    .bind(body.can_get_pm) // 20
+    .bind(body.is_active) // 21
+    .bind(user_id) // 22
+    .bind(role_id) // 23
+    .execute(&mut *transaction)
     .await
     {
-        Ok(role) => {
-            // 3. Commit the transaction
+        Ok(result) => {
+            // Check if any row was affected
+            if result.rows_affected() == 0 {
+                let _ = transaction.rollback().await;
+                return HttpResponse::NotFound().json(json!({
+                    "error": format!("Role with ID {} not found.", role_id)
+                }));
+            }
+
+            // Commit the transaction
             match transaction.commit().await {
-                Ok(_) => HttpResponse::Ok().json(json!({ // HTTP 200 OK
+                Ok(_) => HttpResponse::Ok().json(json!({
                     "message": "Role successfully updated.".to_string(),
-                    "role": role,
                 })),
                 Err(e) => HttpResponse::InternalServerError().json(json!({
                     "error": format!("Failed to commit transaction: {}", e)
@@ -204,16 +191,8 @@ pub async fn put_edit_role(
             }
         }
         Err(error) => {
-            // 4. Rollback on failure
+            // Rollback on failure
             let _ = transaction.rollback().await;
-            
-            // Handle case: Role ID not found
-            if let sqlx::Error::RowNotFound = &error {
-                 return HttpResponse::NotFound().json(json!({
-                    "error": format!("Role with ID {} not found.", role_id)
-                }));
-            }
-
             HttpResponse::InternalServerError().json(json!({
                 "error": format!("Failed to update role: {}", error)
             }))
@@ -232,28 +211,38 @@ pub async fn get_role(
     let page_size = query_parameter.page_size;
     let is_active = query_parameter.is_active.clone();
 
-    match sqlx::query_as::<_, RoleDto>(
-        "SELECT  r.id, r.name, r.can_add_role, r.can_edit_role, r.can_add_user, r.can_edit_user, 
-            r.can_add_vendor, r.can_edit_vendor, r.can_add_project, r.can_edit_project, 
-            r.can_add_pm, r.can_edit_pm, can_add_unit, can_edit_unit, r.can_verify_pm,
-            r.can_get_user, r.can_get_vendor, r.can_get_unit, r.can_get_role, r.can_get_project, r.can_get_pm,
-            r.is_active, CAST(r.created_at AS TEXT), c.username AS created_by, CAST(r.updated_at AS TEXT), u.username AS updated_by
-        FROM role r
-        LEFT JOIN users c ON (c.id = r.created_by)
-        LEFT JOIN users u ON (u.id = r.updated_by)
-        WHERE r.name ILIKE CONCAT('%', $1, '%') AND ($2 IS NULL OR r.is_active = CAST($2 AS BOOL))",
-    )
-    .bind(name_filter)
-    .bind(is_active)
-    .fetch_all(&state.postgres)
-    .await
+    let query_str = "SELECT r.id, r.name, r.can_add_role, r.can_edit_role, r.can_add_user, r.can_edit_user, 
+                     r.can_add_vendor, r.can_edit_vendor, r.can_add_project, r.can_edit_project, 
+                     r.can_add_pm, r.can_edit_pm, can_add_unit, can_edit_unit, r.can_verify_pm,
+                     r.can_get_user, r.can_get_vendor, r.can_get_unit, r.can_get_role, r.can_get_project, r.can_get_pm,
+                     r.is_active, CAST(r.created_at AS CHAR) AS created_at, c.username AS created_by, CAST(r.updated_at AS CHAR) AS updated_at, u.username AS updated_by
+                     FROM role r
+                     LEFT JOIN users c ON (c.id = r.created_by)
+                     LEFT JOIN users u ON (u.id = r.updated_by)
+                     WHERE r.name LIKE CONCAT('%', ?, '%') 
+                       AND (? IS NULL OR r.is_active = ?)";
+
+    // To implement the ? IS NULL OR column = ? pattern, we must bind the is_active value twice.
+    let mut query = sqlx::query_as::<_, RoleDto>(query_str);
+
+    // 1. Bind name filter (first ?)
+    query = query.bind(name_filter);
+
+    // 2. Bind is_active twice (second and third ?)
+    // Binding an Option<bool> directly works for both the NULL check and the comparison in MySQL.
+    query = query.bind(is_active.clone()); 
+    query = query.bind(is_active); 
+
+    match query
+        .fetch_all(&state.db)
+        .await
     {
         Ok(roles) => {
             let response = page_response_builder(page, page_size, &roles);
             HttpResponse::Ok().json(response)
         }
         Err(error) => {
-            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error)  }))
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", error) }))
         }
     }
 }

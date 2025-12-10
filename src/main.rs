@@ -5,7 +5,6 @@ use actix_cors::Cors;
 use actix_web::web;
 use actix_web::{App, HttpServer, Responder, get, web::Data};
 use actix_web_httpauth::middleware::HttpAuthentication;
-use database::postgres::get_postgres_client;
 use dotenv::dotenv;
 use features::vendor_project::services::{
     get_list_pm, get_list_project, get_list_vendor, post_create_vendor, post_create_vendor_project,
@@ -20,15 +19,19 @@ use features::role::services::{
     get_role, post_create_role, put_edit_role
 };
 use features::user::services::{register, login, update_user, get_user, change_password};
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, MySql};
+// use sqlx::{Pool, Postgres};
+// use database::postgres::get_postgres_client;
 use util::jwt_validator::validate_jwt;
+
+use crate::database::mysql::get_mysql_client;
 
 #[get("/index.html")]
 async fn index() -> impl Responder {
     "Hello world!"
 }
 pub struct AppState {
-    postgres: Pool<Postgres>,
+    db: Pool<MySql>,
 }
 
 #[actix_web::main]
@@ -36,9 +39,12 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Starting server ...");
     dotenv().ok();
 
-    // initiate database
-    let postgres_pool = get_postgres_client().await;
-    println!("🚀 Server connection to PostgreSQL success");
+    // // initiate database
+    // let postgres_pool = get_postgres_client().await;
+    // println!("🚀 Server connection to PostgreSQL success");
+
+    let mysql_pool = get_mysql_client().await;
+    println!("🚀 Server connection to MySQL success");
     
     // bearer
     let bearer_middleware = HttpAuthentication::bearer(validate_jwt);
@@ -60,7 +66,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(Data::new(AppState {
-                postgres: postgres_pool.clone(),
+                db: mysql_pool.clone(),
             }))
             .wrap(cors)
             .service(index)

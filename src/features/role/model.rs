@@ -64,7 +64,7 @@ pub struct RoleDto {
 #[derive(Deserialize)]
 pub struct RoleQuery {
     pub name: Option<String>,
-    pub is_active: Option<String>,
+    pub is_active: Option<bool>,
     pub page: i32,
     pub page_size: i32,
 }

@@ -22,7 +22,7 @@ pub struct UnitDto {
 #[derive(Deserialize)]
 pub struct UnitQuery {
     pub name: Option<String>,
-    pub is_active: Option<String>,
+    pub is_active: Option<bool>,
     pub page: i32,
     pub page_size: i32,
 }
