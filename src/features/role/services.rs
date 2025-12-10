@@ -47,7 +47,7 @@ pub async fn post_create_role(
          RETURNING 
             id, name, can_add_role, can_edit_role, can_add_user, can_edit_user, 
             can_add_vendor, can_edit_vendor, can_add_project, can_edit_project, 
-            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, is_active, CAST(created_at AS TEXT) AS created_at"
+            can_add_pm, can_edit_pm, can_verify_pm, can_add_unit, can_edit_unit, is_active, CAST(created_at AS TEXT) AS created_at, CAST(created_by AS TEXT) AS created_by, CAST(updated_at AS TEXT) AS updated_at, CAST(updated_by AS TEXT) AS updated_by"
     )
     .bind(&body.name)
     .bind(body.can_add_role)
@@ -212,7 +212,7 @@ pub async fn get_role(
     match sqlx::query_as::<_, RoleDto>(
         "SELECT  r.id, r.name, r.can_add_role, r.can_edit_role, r.can_add_user, r.can_edit_user, 
             r.can_add_vendor, r.can_edit_vendor, r.can_add_project, r.can_edit_project, 
-            r.can_add_pm, r.can_edit_pm, can_add_unit, can_edit_unit, r.can_verify_pm, r.is_active, CAST(r.created_at AS TEXT), c.name AS created_by, CAST(r.updated_at AS TEXT), u.name AS updated_by
+            r.can_add_pm, r.can_edit_pm, can_add_unit, can_edit_unit, r.can_verify_pm, r.is_active, CAST(r.created_at AS TEXT), c.username AS created_by, CAST(r.updated_at AS TEXT), u.username AS updated_by
         FROM role r
         LEFT JOIN users c ON (c.id = r.created_by)
         LEFT JOIN users u ON (u.id = r.updated_by)

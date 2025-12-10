@@ -19,7 +19,7 @@ use features::unit::services::{
 use features::role::services::{
     get_role, post_create_role, put_edit_role
 };
-use features::user::services::{register, login, update_user, get_user};
+use features::user::services::{register, login, update_user, get_user, change_password};
 use sqlx::{Pool, Postgres};
 use util::jwt_validator::validate_jwt;
 
@@ -72,6 +72,7 @@ async fn main() -> std::io::Result<()> {
                     .service(register)
                     .service(update_user)
                     .service(get_user)
+                    .service(change_password)
                     
                     // vendor
                     .service(get_list_vendor)

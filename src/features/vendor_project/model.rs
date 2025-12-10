@@ -153,12 +153,17 @@ pub struct VerifyPM {
     pub note: Option<String>
 }
 
-
 #[derive(Debug, FromRow)]
 pub struct FilePathResult {
     pub url_file: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NoteEntry {
+    pub timestamp: String,
+    pub user: String,
+    pub note: Option<String>,
+}
 // #[derive(Deserialize)]
 // pub struct UsersVendorQuery {
 //     pub name: Option<String>,

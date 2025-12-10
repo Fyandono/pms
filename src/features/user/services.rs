@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::features::user::model::{Claims, LoginRequest, RegisterRequest, EditUserRequest, UserLoginDto, UserQuery, UserDto};
+use crate::features::user::model::{Claims, LoginRequest, RegisterRequest, EditUserRequest, UserLoginDto, UserQuery, UserDto, ChangePasswordRequest};
 use crate::util::page_response_builder::page_response_builder;
 use actix_web::FromRequest;
 use actix_web::dev::Payload;
@@ -8,14 +8,15 @@ use actix_web::{
     Error, HttpResponse, Responder, post, put, get,
     web::{Data, Json, Query},
 };
-use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+use argon2::{Argon2, PasswordHasher, password_hash::SaltString,  PasswordHash, PasswordVerifier};
 use futures::future::{Ready, ready};
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use argon2::password_hash::rand_core::OsRng;
 use std::env;
 use uuid::Uuid;
 use serde_json::json;
-
+use jsonwebtoken::{encode, Header, EncodingKey};
+use chrono::{Utc, Duration};
 
 #[get("/user")]
 pub async fn get_user(
@@ -35,9 +36,9 @@ pub async fn get_user(
         r.id AS role_id,
         a.is_active, 
         CAST(a.created_at AS TEXT) AS created_at, 
-        c.name AS created_by,
+        c.username AS created_by,
         CAST(a.updated_at AS TEXT) AS updated_at, 
-        u.name AS updated_by
+        u.username AS updated_by
         FROM users a
         LEFT JOIN users c ON (c.id = a.created_by)
         LEFT JOIN users u ON (u.id = a.updated_by)
@@ -102,7 +103,7 @@ async fn register(state: Data<AppState>, payload: Json<RegisterRequest>, claims:
 
     match res {
         Ok(_) => HttpResponse::Ok()
-            .json(serde_json::json!({ "id": new_id})),
+            .json(json!({ "message": "User successfully created."})),
         Err(e) => {
             return HttpResponse::InternalServerError().json(json!({"error":e.to_string()}));
         }
@@ -185,10 +186,6 @@ pub async fn update_user(
 
 #[post("/login")]
 async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Responder {
-    use jsonwebtoken::{encode, Header, EncodingKey};
-    use argon2::{Argon2, PasswordHash, PasswordVerifier};
-    use chrono::{Utc, Duration};
-    use std::env;
 
     let username = payload.username.trim().to_lowercase();
 
@@ -293,6 +290,177 @@ async fn login(state: Data<AppState>, payload: Json<LoginRequest>) -> impl Respo
         }
     }
 }
+
+
+#[put("/change-password")]
+async fn change_password(state: Data<AppState>, payload: Json<ChangePasswordRequest>, claims: AuthClaims) -> impl Responder {
+
+    let user_id = claims.0.sub;
+
+    let row = sqlx::query_as::<_, UserLoginDto>("
+    SELECT 
+        CAST(u.id AS TEXT), 
+        u.name, 
+        u.username,
+        u.password_hash,
+        u.role_id, 
+        r.name AS role,
+        u.is_active,
+        r.can_add_role,       
+        r.can_edit_role,      
+        r.can_add_user,       
+        r.can_edit_user,      
+        r.can_add_vendor,     
+        r.can_edit_vendor,    
+        r.can_add_project,    
+        r.can_edit_project,   
+        r.can_add_pm,         
+        r.can_edit_pm,        
+        r.can_verify_pm,
+        r.can_add_unit,
+        r.can_edit_unit       
+    FROM users u 
+    LEFT JOIN role r ON (r.id = u.role_id)
+    WHERE u.id = CAST($1 AS UUID)")
+        .bind(&user_id)
+        .fetch_one(&state.postgres)
+        .await;
+
+    let user = match row {
+        Ok(u) => u,
+        Err(sqlx::Error::RowNotFound) => return HttpResponse::Unauthorized().json(json!({ "message": "Invalid credentials." })),
+        Err(_) => return HttpResponse::InternalServerError().json(json!({ "message": "Database error during login." })),
+    };
+
+    if !user.is_active {
+        return HttpResponse::Forbidden().json(json!({ "message": "Account is not active." }));
+    }
+
+    let parsed_hash = match PasswordHash::new(&user.password_hash) {
+        Ok(ph) => ph,
+        Err(_) => {
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+
+    let argon2 = Argon2::default();
+    if argon2
+        .verify_password(payload.password.as_bytes(), &parsed_hash)
+        .is_err()
+    {
+        return HttpResponse::Unauthorized().json(json!({ "message": "Invalid credentials." }));
+    }
+
+    if payload.new_password == payload.password {
+    return HttpResponse::BadRequest().json(json!({ 
+        "message": "New password cannot be the same as old password." 
+    }));
+}
+     let password_hash: Option<String> = match &payload.new_password {
+        pw if pw.len() >= 8 => {
+            let salt = SaltString::generate(&mut OsRng);            
+            match argon2.hash_password(pw.as_bytes(), &salt) {
+                Ok(ph) => Some(ph.to_string()),
+                Err(e) => {
+                    eprintln!("Password hashing failed: {}", e);
+                    return HttpResponse::InternalServerError().json(json!({ "message": "Failed to hash password" }));
+                }
+            }
+        },
+        pw if pw.len() < 8 => {
+            return HttpResponse::BadRequest().json(json!({ "message": "Password must be at least 8 characters long." }));
+        }
+        _ => None, // Password is None or empty string, do not update.
+    };
+
+
+    // 4. Build the dynamic SQL UPDATE statement
+    let res = sqlx::query(
+        "
+        UPDATE users SET 
+            password_hash = $1
+        WHERE id = CAST($2 AS UUID)
+        RETURNING id
+        ",
+    )
+    .bind(password_hash.as_deref())  
+    .bind(user_id)
+    .fetch_optional(&state.postgres)
+    .await;
+
+    match res {
+        Ok(_) => HttpResponse::Ok()
+            .json(json!({ "message": "Password successfully updated." })),
+        Err(e) => {
+            eprintln!("Database error during user update: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "message": "Could not update user." }))
+        }
+    }
+}
+
+// #[put("/change-password")]
+// pub async fn put_change_password(
+//     state: Data<AppState>,
+//     payload: Json<ChangePasswordRequest>,
+//     claims: AuthClaims,
+// ) -> impl Responder {
+
+//     // Get User ID
+//     let user_id = claims.0.sub;
+    
+//     // Password
+//     let old_password = payload.password;
+//     let new_password = payload.new_password;
+
+//     // 3. Conditional Password Hashing
+//     let password_hash: Option<String> = match &payload.password {
+//         Some(pw) if pw.len() >= 8 => {
+//             let salt = SaltString::generate(&mut OsRng);
+//             let argon2 = Argon2::default();
+            
+//             match argon2.hash_password(pw.as_bytes(), &salt) {
+//                 Ok(ph) => Some(ph.to_string()),
+//                 Err(e) => {
+//                     eprintln!("Password hashing failed: {}", e);
+//                     return HttpResponse::InternalServerError().json(json!({ "message": "Failed to hash password" }));
+//                 }
+//             }
+//         },
+//         Some(pw) if pw.len() < 8 => {
+//             return HttpResponse::BadRequest().json(json!({ "message": "Password must be at least 8 characters long." }));
+//         }
+//         _ => None, // Password is None or empty string, do not update.
+//     };
+
+//     // 4. Build the dynamic SQL UPDATE statement
+//     let res = sqlx::query(
+//         "
+//         UPDATE users SET 
+//             username = COALESCE($2, username),
+//             name = COALESCE($3, name),
+//             role_id = COALESCE($4, role_id),
+//             password_hash = COALESCE($5, password_hash),
+//             is_active = COALESCE($6, is_active),
+//             updated_at = NOW(),
+//             updated_by = CAST($7 AS UUID)
+//         WHERE id = CAST($1 AS UUID)
+//         RETURNING id
+//         ",
+//     )
+//     .bind(password_hash.as_deref())  
+//     .bind(user_id)
+//     .fetch_optional(&state.postgres)
+//     .await;
+
+//     match res {
+//         Ok(_) => HttpResponse::Ok()
+//             .json(json!({ "message": "Password successfully updated." })),
+//         Err(e) => {
+//             eprintln!("Database error during password update: {}", e);
+//             HttpResponse::InternalServerError().json(json!({ "message": "Could not update password." }))
+//         }
+//     }
+// }
 
 // Extractor for Claims from Authorization header
 pub struct AuthClaims(pub(crate) Claims);

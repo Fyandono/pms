@@ -8,12 +8,12 @@ use actix_web::{
 };
 use actix_multipart::Multipart;
 use serde_json::json;
-use sqlx::{self, query};
+use sqlx::{self, types::Json as SqlxJson};
 use crate::features::user::services::{AuthClaims};
 use crate::features::vendor_project::model::{ProjectQuery,
     Vendor, VendorDto, VendorQuery, Project, ProjectDto, 
     ProjectPMDto, PMQuery, VerifyPM, VendorDropdownDto,
-    ProjectPM, ProjectPMData, FilePathResult, PMDetailQuery};
+    ProjectPM, ProjectPMData, FilePathResult, PMDetailQuery, NoteEntry};
 use crate::util::page_response_builder::{page_response_builder, page_response_extra_builder};
 use crate::util::require_role::{require_role};
 use tokio::fs::File;
@@ -40,9 +40,9 @@ pub async fn get_list_vendor(
                         v.address,
                         v.email,
                         v.phone_number,
-                        c.name AS created_by,
+                        c.username AS created_by,
                         CAST(v.created_at AS TEXT) AS created_at,
-                        u.name AS updated_by,
+                        u.username AS updated_by,
                         CAST(v.updated_at AS TEXT) AS updated_at,
                         COUNT(p.id) AS count_project
                     FROM vendor v
@@ -50,7 +50,7 @@ pub async fn get_list_vendor(
                     LEFT JOIN users c ON (c.id = v.created_by)
                     LEFT JOIN users u ON (u.id = v.updated_by)
                     WHERE v.name ILIKE CONCAT('%',$1,'%')
-                    GROUP BY v.id, c.name, u.name
+                    GROUP BY v.id, c.username, u.username
                     ORDER BY v.name;",
     )
     .bind(name_filter)
@@ -73,8 +73,6 @@ pub async fn get_dropdown_vendor(
     claims: AuthClaims,
     query_parameter: Query<VendorQuery>
 ) -> impl Responder {
-    
-    
 
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
@@ -117,9 +115,9 @@ pub async fn get_list_project(
                 v.address,
                 v.email,
                 v.phone_number,
-                c.name AS created_by,
+                c.username AS created_by,
                 CAST(v.created_at AS TEXT) AS created_at,
-                u.name AS updated_by,
+                u.username AS updated_by,
                 CAST(v.updated_at AS TEXT) AS updated_at,
                 COUNT(p.id) AS count_project
             FROM vendor v
@@ -127,7 +125,7 @@ pub async fn get_list_project(
             LEFT JOIN users c ON (c.id = v.created_by)
             LEFT JOIN users u ON (u.id = v.updated_by)
             WHERE v.id = $1
-            GROUP BY v.id, c.name, u.name
+            GROUP BY v.id, c.username, u.username
             ORDER BY v.name;",
     )
     .bind(vendor_id)
@@ -160,9 +158,9 @@ pub async fn get_list_project(
                     un.name AS pic_unit,
                     p.pic_unit_id,
                     p.project_type,
-                    c.name AS created_by,
+                    c.username AS created_by,
                     CAST(p.created_at AS TEXT) AS created_at,
-                    u.name AS updated_by,
+                    u.username AS updated_by,
                     CAST(p.updated_at AS TEXT) AS updated_at,
                     COALESCE(COUNT(pm.id), 0) AS count_pm_uploaded,
                     COALESCE(dpmv.count_pm_verified, 0) AS count_pm_verified,
@@ -175,7 +173,7 @@ pub async fn get_list_project(
                 LEFT JOIN unit un ON (un.id = p.pic_unit_id)
                 LEFT JOIN vendor v on (v.id = p.vendor_id)
                 WHERE p.vendor_id = $1 AND p.name ILIKE CONCAT('%', $2, '%')
-                GROUP BY p.id, dpmv.count_pm_verified, un.name, c.name, u.name, v.name;",
+                GROUP BY p.id, dpmv.count_pm_verified, un.name, c.username, u.username, v.name;",
             )
                 .bind(vendor_id)
                 .bind(name_filter)
@@ -226,9 +224,9 @@ pub async fn get_list_pm(
                     p.pic_unit_id,
                     un.name AS pic_unit,
                     p.project_type,
-                    c.name AS created_by,
+                    c.username AS created_by,
                     CAST(p.created_at AS TEXT) AS created_at,
-                    u.name AS updated_by,
+                    u.username AS updated_by,
                     CAST(p.updated_at AS TEXT) AS updated_at,
                     COALESCE(COUNT(pm.id), 0) AS count_pm_uploaded,
                     COALESCE(dpmv.count_pm_verified, 0) AS count_pm_verified,
@@ -241,7 +239,7 @@ pub async fn get_list_pm(
                 LEFT JOIN unit un ON (un.id = p.pic_unit_id)
                 LEFT JOIN vendor v ON (v.id = p.vendor_id)
                 WHERE p.id = $1
-                GROUP BY p.id, dpmv.count_pm_verified, un.name, c.name, u.name, v.name;",
+                GROUP BY p.id, dpmv.count_pm_verified, un.name, c.username, u.username, v.name;",
     )
     .bind(project_id)
     .fetch_optional(&state.postgres)
@@ -265,11 +263,11 @@ pub async fn get_list_pm(
                         CAST(a.pm_project_date AS TEXT) AS pm_project_date,
                         a.url_file,
                         a.is_verified,
-                        v.name AS verified_by,
+                        v.username AS verified_by,
                         CAST(a.verified_at AS TEXT) as verified_at,
-                        c.name AS created_by,
+                        c.username AS created_by,
                         CAST(a.created_at AS TEXT) AS created_at,
-                        up.name AS updated_by,
+                        up.username AS updated_by,
                         CAST(a.updated_at AS TEXT) AS updated_at,
                         a.pic_name,
                         a.pic_email,
@@ -574,12 +572,13 @@ pub async fn put_edit_verify_pm(
     body: Json<VerifyPM>,
     claims: AuthClaims
 ) -> impl Responder {
-
-    // Get user id
-    let user_id = &claims.0.sub;
     
-    // 1. Begin a new transaction
-    let mut transaction = match state.postgres.begin().await {
+    let user_id = &claims.0.sub;
+    let username = &claims.0.username; 
+    let pool = &state.postgres;
+
+    // 1. Start Transaction
+    let mut transaction = match pool.begin().await {
         Ok(t) => t,
         Err(e) => {
             return HttpResponse::InternalServerError().json(json!({
@@ -588,32 +587,116 @@ pub async fn put_edit_verify_pm(
         }
     };
 
-    // 2. Update the Project within the transaction
-    match sqlx::query_as::<_, VerifyPM>(
+    // --- A. FETCH ROW EXISTENCE (Necessary to distinguish NULL note from missing row) ---
+    let row_exists: bool = match sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project_pm WHERE id = $1)")
+        .bind(&body.id)
+        .fetch_one(&mut *transaction)
+        .await
+    {
+        Ok(exists) => exists,
+        Err(e) => {
+            let _ = transaction.rollback().await;
+            return HttpResponse::InternalServerError().json(json!({ "error": format!("Database error during row check: {}", e) }));
+        }
+    };
+
+    if !row_exists {
+        let _ = transaction.rollback().await;
+        return HttpResponse::NotFound().json(json!({ "message": "Project PM record not found." }));
+    }
+
+    // --- B. FETCH existing notes history as Optional String (The requested method) ---
+    let notes_json_string: Option<String> = match sqlx::query_scalar::<_, Option<String>>(
+        "SELECT note FROM project_pm WHERE id = $1"
+    )
+    .bind(&body.id)
+    .fetch_optional(&mut *transaction)
+    .await
+    {
+        Ok(Some(s)) => s, 
+        Ok(None) => None, // Note column was SQL NULL, or row was just fetched by SELECT EXISTS
+        Err(e) => {
+            let _ = transaction.rollback().await;
+            return HttpResponse::InternalServerError().json(json!({ 
+                "error": format!("Failed to fetch notes history string: {}", e) 
+            }));
+        }
+    };
+    
+    // 3. Safely parse the fetched string into Vec<NoteEntry>
+    let mut notes_history: Vec<NoteEntry> = match notes_json_string {
+        Some(s) => {
+            // Attempt to parse the string content
+            match serde_json::from_str(&s) {
+                Ok(notes) => notes,
+                Err(e) => {
+                    // Log the error and treat it as empty history for resilience
+                    eprintln!("Warning: Corrupt JSON data found in note column for ID {}. Error: {}", body.id, e);
+                    Vec::new() 
+                }
+            }
+        },
+        // If the column was NULL, start with an empty vector
+        None => Vec::new(), 
+    };
+
+    // 4. Prepare and conditionally append the new note entry
+    
+    // Check if the input note is Some() AND if the contained string is not empty/whitespace
+    let is_note_valid = body.note.as_ref() 
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false); 
+    
+    if is_note_valid {
+        let current_time = chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S%.f%z")
+        .to_string();
+    
+        let new_entry = NoteEntry {
+            timestamp: current_time,
+            user: username.clone(),
+            note: body.note.as_ref().map(|s| s.trim().to_string()),
+        };
+        notes_history.push(new_entry);
+    }
+    
+    // 5. Serialize the complete history back into a String/Text for the UPDATE query
+    let updated_notes_json_string = match serde_json::to_string(&notes_history) {
+        Ok(s) => s,
+        Err(e) => {
+             let _ = transaction.rollback().await;
+             return HttpResponse::InternalServerError().json(json!({ 
+                "error": format!("Failed to serialize notes history: {}", e) 
+            }));
+        }
+    };
+
+
+    // --- C. UPDATE the record ---
+    match sqlx::query(
         "UPDATE project_pm
          SET is_verified = $2,
              note = $3,
-             pm_completion_date = CAST($4 AS DATE),
+             pm_completion_date = CAST($4 AS DATE),  
              verified_at = NOW(),
              verified_by = CAST($5 AS UUID)
          WHERE id = $1
-         RETURNING id, is_verified, CAST(pm_completion_date AS TEXT), note"
+         RETURNING id" 
     )
     .bind(&body.id)
     .bind(&body.is_verified)
-    .bind(&body.note)
-    .bind(&body.pm_completion_date)
+    .bind(updated_notes_json_string) /* Binding the JSON as a raw String */
+    .bind(&body.pm_completion_date) 
     .bind(user_id)
     .fetch_one(&mut *transaction)
     .await
     {
-        Ok(project_pm) => {
-            // 3. Commit the transaction
+        Ok(_) => {
+            // 6. Commit the transaction
             match transaction.commit().await {
                 Ok(_) => {
                     HttpResponse::Ok().json(json!({
-                        "message": format!("PM ID '{}' successfully updated.", project_pm.id),
-                        "project_pm": project_pm,
+                        "message": format!("PM ID '{}' successfully updated.", body.id),
                     }))
                 }
                 Err(e) => {
@@ -624,7 +707,7 @@ pub async fn put_edit_verify_pm(
             }
         }
         Err(error) => {
-            // 4. Rollback on failure
+            // 7. Rollback on failure
             let _ = transaction.rollback().await;
             HttpResponse::InternalServerError().json(json!({
                 "error": format!("Failed to update project: {}", error)
@@ -632,6 +715,71 @@ pub async fn put_edit_verify_pm(
         }
     }
 }
+
+// #[put("/verify")]
+// pub async fn put_edit_verify_pm(
+//     state: Data<AppState>,
+//     body: Json<VerifyPM>,
+//     claims: AuthClaims
+// ) -> impl Responder {
+
+//     // Get user id
+//     let user_id = &claims.0.sub;
+    
+//     // 1. Begin a new transaction
+//     let mut transaction = match state.postgres.begin().await {
+//         Ok(t) => t,
+//         Err(e) => {
+//             return HttpResponse::InternalServerError().json(json!({
+//                 "error": format!("Failed to start transaction: {}", e)
+//             }))
+//         }
+//     };
+
+//     // 2. Update the Project within the transaction
+//     match sqlx::query_as::<_, VerifyPM>(
+//         "UPDATE project_pm
+//          SET is_verified = $2,
+//              note = $3,
+//              pm_completion_date = CAST($4 AS DATE),
+//              verified_at = NOW(),
+//              verified_by = CAST($5 AS UUID)
+//          WHERE id = $1
+//          RETURNING id, is_verified, CAST(pm_completion_date AS TEXT), note"
+//     )
+//     .bind(&body.id)
+//     .bind(&body.is_verified)
+//     .bind(&body.note)
+//     .bind(&body.pm_completion_date)
+//     .bind(user_id)
+//     .fetch_one(&mut *transaction)
+//     .await
+//     {
+//         Ok(project_pm) => {
+//             // 3. Commit the transaction
+//             match transaction.commit().await {
+//                 Ok(_) => {
+//                     HttpResponse::Ok().json(json!({
+//                         "message": format!("PM ID '{}' successfully updated.", project_pm.id),
+//                         "project_pm": project_pm,
+//                     }))
+//                 }
+//                 Err(e) => {
+//                     HttpResponse::InternalServerError().json(json!({
+//                         "error": format!("Failed to commit transaction: {}", e)
+//                     }))
+//                 }
+//             }
+//         }
+//         Err(error) => {
+//             // 4. Rollback on failure
+//             let _ = transaction.rollback().await;
+//             HttpResponse::InternalServerError().json(json!({
+//                 "error": format!("Failed to update project: {}", error)
+//             }))
+//         }
+//     }
+// }
 
 #[post("/pm")]
 pub async fn post_create_project_pm(
@@ -1163,9 +1311,9 @@ pub async fn get_detail_pm(
                     p.pic_unit_id,
                     un.name AS pic_unit,
                     p.project_type,
-                    c.name AS created_by,
+                    c.username AS created_by,
                     CAST(p.created_at AS TEXT) AS created_at,
-                    u.name AS updated_by,
+                    u.username AS updated_by,
                     CAST(p.updated_at AS TEXT) AS updated_at,
                     COALESCE(COUNT(pm.id), 0) AS count_pm_uploaded,
                     COALESCE(dpmv.count_pm_verified, 0) AS count_pm_verified,
@@ -1178,7 +1326,7 @@ pub async fn get_detail_pm(
                 LEFT JOIN unit un ON (un.id = p.pic_unit_id)
                 LEFT JOIN vendor v ON (v.id = p.vendor_id)
                 WHERE pm.id = $1
-                GROUP BY p.id, dpmv.count_pm_verified, un.name, c.name, u.name, v.name;",
+                GROUP BY p.id, dpmv.count_pm_verified, un.name, c.username, u.username, v.name;",
     )
     .bind(pm_id)
     .fetch_optional(&state.postgres)
@@ -1202,11 +1350,11 @@ pub async fn get_detail_pm(
                         CAST(a.pm_project_date AS TEXT) AS pm_project_date,
                         a.url_file,
                         a.is_verified,
-                        v.name AS verified_by,
+                        v.username AS verified_by,
                         CAST(a.verified_at AS TEXT) as verified_at,
-                        c.name AS created_by,
+                        c.username AS created_by,
                         CAST(a.created_at AS TEXT) AS created_at,
-                        up.name AS updated_by,
+                        up.username AS updated_by,
                         CAST(a.updated_at AS TEXT) AS updated_at,
                         a.pic_name,
                         a.pic_email,
