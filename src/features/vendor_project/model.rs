@@ -23,6 +23,7 @@ pub struct PMQuery {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub pm_type: Option<String>,
+    pub pm_status: Option<String>,
     pub page: i32,
     pub page_size: i32
 }

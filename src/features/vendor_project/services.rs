@@ -198,6 +198,7 @@ pub async fn get_list_pm(
     let start_date = query_parameter.start_date.clone();
     let end_date = query_parameter.end_date.clone();
     let pm_type = query_parameter.pm_type.clone();
+    let pm_status = query_parameter.pm_status.clone();
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
 
@@ -276,6 +277,11 @@ pub async fn get_list_pm(
             WHERE a.project_id = ? 
             AND (? IS NULL OR a.pm_description LIKE CONCAT('%', ?, '%'))
             AND (? IS NULL OR a.pm_type = ?)
+            AND (? IS NULL OR (
+                            (? = 'On Progress' AND a.is_verified IS NULL) OR
+                            (? = 'Verified' AND a.is_verified = TRUE) OR
+                            (? = 'Need Revise' AND a.is_verified = FALSE)
+                        ))
             AND (? IS NULL OR a.pm_project_date >= CAST(? AS DATE))
             AND (? IS NULL OR a.pm_project_date <= CAST(? AS DATE))
             ORDER BY a.created_at DESC;
@@ -286,6 +292,10 @@ pub async fn get_list_pm(
             .bind(description)
             .bind(&pm_type)
             .bind(&pm_type)
+            .bind(&pm_status)
+            .bind(&pm_status)
+            .bind(&pm_status)
+            .bind(&pm_status)
             .bind(start_date.clone())
             .bind(start_date)
             .bind(end_date.clone())
