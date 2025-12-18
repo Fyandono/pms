@@ -1,6 +1,8 @@
 mod database;
 mod features;
 mod util;
+use std::env;
+
 use actix_cors::Cors;
 use actix_web::web;
 use actix_web::{App, HttpServer, Responder, get, web::Data};
@@ -8,9 +10,9 @@ use actix_web_httpauth::middleware::HttpAuthentication;
 use dotenv::dotenv;
 use features::vendor_project::services::{
     get_list_pm, get_list_project, get_list_vendor, post_create_vendor, post_create_vendor_project,
-    put_edit_vendor, put_edit_vendor_project, put_edit_verify_pm, get_dropdown_vendor,
+    put_edit_vendor, put_edit_vendor_project, put_edit_verify_pm, get_all_vendor,
     post_create_project_pm, put_edit_project_pm, get_project_pm_file,
-    get_detail_pm
+    get_detail_pm, get_report
 };
 use features::unit::services::{
     get_unit, post_create_unit, put_edit_unit
@@ -20,8 +22,6 @@ use features::role::services::{
 };
 use features::user::services::{register, login, update_user, get_user, change_password};
 use sqlx::{Pool, MySql};
-// use sqlx::{Pool, Postgres};
-// use database::postgres::get_postgres_client;
 use util::jwt_validator::validate_jwt;
 
 use crate::database::mysql::get_mysql_client;
@@ -39,9 +39,8 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Starting server ...");
     dotenv().ok();
 
-    // // initiate database
-    // let postgres_pool = get_postgres_client().await;
-    // println!("🚀 Server connection to PostgreSQL success");
+    let port_str = env::var("RUST_APP_PORT").unwrap_or_else(|_| "8080".to_string());
+    let port: u16 = port_str.parse().expect("RUST_APP_PORT");
 
     let mysql_pool = get_mysql_client().await;
     println!("🚀 Server connection to MySQL success");
@@ -52,7 +51,6 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
 
     let cors = Cors::default()
-        // .allowed_origin("http://localhost:5173") 
         .allow_any_origin()
         .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
         .allowed_headers(vec![
@@ -82,7 +80,7 @@ async fn main() -> std::io::Result<()> {
                     
                     // vendor
                     .service(get_list_vendor)
-                    .service(get_dropdown_vendor)
+                    .service(get_all_vendor)
                     .service(post_create_vendor)
                     .service(put_edit_vendor)
 
@@ -108,10 +106,13 @@ async fn main() -> std::io::Result<()> {
                     .service(get_role)
                     .service(post_create_role)
                     .service(put_edit_role)
+
+                    // report
+                    .service(get_report)
                     ,
             )
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", port))?
     .run()
     .await
 }

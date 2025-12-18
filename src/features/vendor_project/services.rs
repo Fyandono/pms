@@ -1,4 +1,4 @@
-use crate::{AppState};
+use crate::{AppState, features::vendor_project::model::{PMReportDto, ReportQuery}};
 use actix_web::{
     get,
     post,
@@ -65,26 +65,21 @@ pub async fn get_list_vendor(
     }
 }
 
-#[get("/dropdown-vendor")]
-pub async fn get_dropdown_vendor(
+#[get("/all-vendor")]
+pub async fn get_all_vendor(
     state: Data<AppState>,
-    query_parameter: Query<VendorQuery>
 ) -> impl Responder {
 
-    let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
-    let page = query_parameter.page;
-    let page_size = query_parameter.page_size;
     match sqlx::query_as::<_, VendorDropdownDto>(
         "SELECT v.id, v.name
         FROM vendor v
-        WHERE v.name LIKE CONCAT('%', ?, '%')",
+        ORDER BY v.name"
     )
-    .bind(name_filter)
     .fetch_all(&state.db)
     .await
     {
         Ok(vendors) => {
-            let response = page_response_builder(page, page_size, &vendors);
+            let response = json!({"data": vendors});
             HttpResponse::Ok().json(response)
         }
         Err(error) => {
@@ -195,8 +190,10 @@ pub async fn get_list_pm(
 
     let project_id = query_parameter.project_id;
     let description = query_parameter.description.clone();
-    let start_date = query_parameter.start_date.clone();
-    let end_date = query_parameter.end_date.clone();
+    let project_start_date = query_parameter.project_start_date.clone();
+    let project_end_date = query_parameter.project_end_date.clone();
+    let completion_start_date = query_parameter.completion_start_date.clone();
+    let completion_end_date = query_parameter.completion_end_date.clone();
     let pm_type = query_parameter.pm_type.clone();
     let pm_status = query_parameter.pm_status.clone();
     let page = query_parameter.page;
@@ -280,10 +277,12 @@ pub async fn get_list_pm(
             AND (? IS NULL OR (
                             (? = 'On Progress' AND a.is_verified IS NULL) OR
                             (? = 'Verified' AND a.is_verified = TRUE) OR
-                            (? = 'Need Revise' AND a.is_verified = FALSE)
+                            (? = 'Need Revision' AND a.is_verified = FALSE)
                         ))
             AND (? IS NULL OR a.pm_project_date >= CAST(? AS DATE))
             AND (? IS NULL OR a.pm_project_date <= CAST(? AS DATE))
+            AND (? IS NULL OR a.pm_completion_date IS NULL OR a.pm_completion_date >= CAST(? AS DATE))
+            AND (? IS NULL OR a.pm_completion_date IS NULL OR a.pm_completion_date <= CAST(? AS DATE))
             ORDER BY a.created_at DESC;
             ",
         )
@@ -296,10 +295,14 @@ pub async fn get_list_pm(
             .bind(&pm_status)
             .bind(&pm_status)
             .bind(&pm_status)
-            .bind(start_date.clone())
-            .bind(start_date)
-            .bind(end_date.clone())
-            .bind(end_date)
+            .bind(project_start_date.clone())
+            .bind(project_start_date)
+            .bind(project_end_date.clone())
+            .bind(project_end_date)
+            .bind(completion_start_date.clone())
+            .bind(completion_start_date)
+            .bind(completion_end_date.clone())
+            .bind(completion_end_date)
             .fetch_all(&state.db)
             .await
         {
@@ -1387,6 +1390,99 @@ pub async fn get_detail_pm(
                 let response = 
                  json!({"project": project_detail,
                          "project_maintenance": pms.first()});
+                HttpResponse::Ok().json(response)
+            }
+            Err(error) => {
+                HttpResponse::InternalServerError().json(json!({ "message": format!("{}", error) }))
+            }
+        }
+}
+
+#[get("/report")]
+pub async fn get_report(
+    state: Data<AppState>,
+    query_parameter: Query<ReportQuery>,
+) -> impl Responder {
+    let list_vendor_id = query_parameter.list_vendor_id.clone();
+    let project_start_date = query_parameter.pm_project_start_date.clone();
+    let project_end_date = query_parameter.pm_project_end_date.clone();
+    let completion_start_date = query_parameter.pm_completion_start_date.clone();
+    let completion_end_date = query_parameter.pm_completion_end_date.clone();
+    let pm_type = query_parameter.pm_type.clone();
+    let pm_status = query_parameter.pm_status.clone();
+
+    match sqlx::query_as::<_, PMReportDto>(
+        "SELECT ve.id AS vendor_id,
+                ve.name AS vendor_name,
+                pr.id AS project_id,
+                pr.name AS project_name,
+                a.id AS project_id,
+                a.id AS pm_id,
+                a.pm_description AS pm_task,
+                a.pm_solution,
+                a.pm_type,
+                CAST(a.pm_project_date AS CHAR) AS pm_project_date,
+                CAST(a.pm_completion_date AS CHAR) AS pm_completion_date,
+                a.pic_name,
+                a.pic_email,
+                u.name AS pic_unit,
+               (CASE 
+                    WHEN a.is_verified IS NULL THEN 'On Progress' 
+                    WHEN a.is_verified IS TRUE THEN 'Verified' 
+                    WHEN a.is_verified IS FALSE THEN 'Need Revise' 
+                END) AS status,
+                v.username AS pm_verified_by,
+                CAST(a.verified_at AS CHAR) AS pm_verified_at,
+                c.username AS pm_created_by,
+                CAST(a.created_at AS CHAR) AS pm_created_at,
+                up.username AS pm_updated_by,
+                CAST(a.updated_at AS CHAR) AS pm_updated_at,
+                a.note
+                FROM project_pm a
+                LEFT JOIN project pr ON (pr.id = a.project_id)
+                LEFT JOIN vendor ve ON (ve.id = pr.vendor_id)
+                LEFT JOIN users c ON (c.id = a.created_by)
+                LEFT JOIN users v ON (v.id = a.verified_by)
+                LEFT JOIN users up ON (up.id = a.updated_by)
+                LEFT JOIN unit u ON (u.id = a.pic_unit_id)
+                WHERE (? IS NULL OR FIND_IN_SET(ve.id,  ?))
+                    AND (? IS NULL OR a.pm_type = ?)
+                    AND (? IS NULL OR (
+                        (? = 'On Progress' AND a.is_verified IS NULL) OR
+                        (? = 'Verified' AND a.is_verified = TRUE) OR
+                        (? = 'Need Revision' AND a.is_verified = FALSE)
+                    ))
+                    AND (? IS NULL OR a.pm_project_date >= ?)
+                    AND (? IS NULL OR a.pm_project_date <= ?)
+                    AND (? IS NULL OR a.pm_completion_date IS NULL OR a.pm_completion_date >= ?)
+                    AND (? IS NULL OR a.pm_completion_date IS NULL OR a.pm_completion_date <= ?)
+                ORDER BY a.created_at DESC;
+            ",
+        )
+            .bind(&list_vendor_id)
+            .bind(&list_vendor_id)
+            .bind(&pm_type)
+            .bind(&pm_type)
+            .bind(&pm_status)
+            .bind(&pm_status)
+            .bind(&pm_status)
+            .bind(&pm_status)
+            .bind(project_start_date.clone())
+            .bind(project_start_date)
+            .bind(project_end_date.clone())
+            .bind(project_end_date)
+            .bind(completion_start_date.clone())
+            .bind(completion_start_date)
+            .bind(completion_end_date.clone())
+            .bind(completion_end_date)
+            .fetch_all(&state.db)
+            .await
+        {
+            Ok(pms) => {
+                let response = json!({
+                    "data": pms,
+                });
+
                 HttpResponse::Ok().json(response)
             }
             Err(error) => {

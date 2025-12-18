@@ -20,12 +20,25 @@ pub struct ProjectQuery {
 pub struct PMQuery {
     pub project_id: i32,
     pub description: Option<String>,
-    pub start_date: Option<String>,
-    pub end_date: Option<String>,
+    pub project_start_date: Option<String>,
+    pub project_end_date: Option<String>,
+    pub completion_start_date: Option<String>,
+    pub completion_end_date: Option<String>,
     pub pm_type: Option<String>,
     pub pm_status: Option<String>,
     pub page: i32,
     pub page_size: i32
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct ReportQuery {
+    pub list_vendor_id: Option<String>,
+    pub pm_project_start_date: Option<String>,
+    pub pm_project_end_date: Option<String>,
+    pub pm_completion_start_date: Option<String>,
+    pub pm_completion_end_date: Option<String>,
+    pub pm_type: Option<String>,
+    pub pm_status: Option<String>
 }
 
 #[derive(Deserialize)]
@@ -116,6 +129,7 @@ pub struct ProjectPMDto {
     pub pm_solution: String,
     pub pm_type: String,
     pub pm_project_date: String,
+    pub pm_completion_date: String,
     pub url_file: String,
     pub is_verified: Option<bool>,
     pub verified_at: Option<String>, 
@@ -165,6 +179,30 @@ pub struct NoteEntry {
     pub user: String,
     pub note: Option<String>,
 }
+
+// --- Project PM (Preventive Maintenance) Structure ---
+#[derive(Serialize, Deserialize, Debug, FromRow)]
+pub struct PMReportDto {
+    pub vendor_name: String,
+    pub project_name: String,
+    pub pm_task: String,
+    pub pm_solution: String,
+    pub pm_type: String,
+    pub pic_name: Option<String>,
+    pub pic_email: Option<String>,
+    pub pic_unit: Option<String>,
+    pub pm_project_date: String,
+    pub pm_completion_date: Option<String>,
+    pub status: Option<String>,
+    pub pm_verified_at: Option<String>, 
+    pub pm_verified_by: Option<String>,
+    pub note: Option<String>,
+    pub pm_created_at: String, 
+    pub pm_created_by: String,
+    pub pm_updated_at: Option<String>,
+    pub pm_updated_by: Option<String>
+}
+
 // #[derive(Deserialize)]
 // pub struct UsersVendorQuery {
 //     pub name: Option<String>,
