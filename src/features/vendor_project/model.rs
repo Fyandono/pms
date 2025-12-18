@@ -33,10 +33,10 @@ pub struct PMQuery {
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct ReportQuery {
     pub list_vendor_id: Option<String>,
-    pub pm_project_start_date: Option<String>,
-    pub pm_project_end_date: Option<String>,
-    pub pm_completion_start_date: Option<String>,
-    pub pm_completion_end_date: Option<String>,
+    pub project_start_date: Option<String>,
+    pub project_end_date: Option<String>,
+    pub completion_start_date: Option<String>,
+    pub completion_end_date: Option<String>,
     pub pm_type: Option<String>,
     pub pm_status: Option<String>
 }

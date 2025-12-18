@@ -1404,10 +1404,10 @@ pub async fn get_report(
     query_parameter: Query<ReportQuery>,
 ) -> impl Responder {
     let list_vendor_id = query_parameter.list_vendor_id.clone();
-    let project_start_date = query_parameter.pm_project_start_date.clone();
-    let project_end_date = query_parameter.pm_project_end_date.clone();
-    let completion_start_date = query_parameter.pm_completion_start_date.clone();
-    let completion_end_date = query_parameter.pm_completion_end_date.clone();
+    let project_start_date = query_parameter.project_start_date.clone();
+    let project_end_date = query_parameter.project_end_date.clone();
+    let completion_start_date = query_parameter.completion_start_date.clone();
+    let completion_end_date = query_parameter.completion_end_date.clone();
     let pm_type = query_parameter.pm_type.clone();
     let pm_status = query_parameter.pm_status.clone();
 
