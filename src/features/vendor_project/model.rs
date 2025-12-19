@@ -6,6 +6,7 @@ pub struct VendorQuery {
     pub name: Option<String>,
     pub page: i32,
     pub page_size: i32,
+    pub is_report: Option<bool>
 }
 
 #[derive(Deserialize)]
@@ -14,6 +15,7 @@ pub struct ProjectQuery {
     pub name: Option<String>,
     pub page: i32,
     pub page_size: i32,
+    pub is_report: Option<bool>
 }
 
 #[derive(Deserialize)]
@@ -27,7 +29,8 @@ pub struct PMQuery {
     pub pm_type: Option<String>,
     pub pm_status: Option<String>,
     pub page: i32,
-    pub page_size: i32
+    pub page_size: i32,
+    pub is_report: Option<bool>
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -185,6 +188,7 @@ pub struct NoteEntry {
 pub struct PMReportDto {
     pub vendor_name: String,
     pub project_name: String,
+    pub project_type: String,
     pub pm_task: String,
     pub pm_solution: String,
     pub pm_type: String,

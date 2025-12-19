@@ -67,4 +67,5 @@ pub struct RoleQuery {
     pub is_active: Option<bool>,
     pub page: i32,
     pub page_size: i32,
+    pub is_report: Option<bool>
 }

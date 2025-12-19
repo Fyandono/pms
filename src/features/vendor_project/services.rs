@@ -32,6 +32,8 @@ pub async fn get_list_vendor(
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
+    let is_report = query_parameter.is_report;
+
     match sqlx::query_as::<_, VendorDto>(
         "SELECT v.id,
                 v.name,
@@ -56,7 +58,13 @@ pub async fn get_list_vendor(
     .await
     {
         Ok(vendors) => {
-            let response = page_response_builder(page, page_size, &vendors);
+            let response = if is_report.unwrap_or(false) {
+                    json!({ "data": vendors })
+                } else {
+                    page_response_builder(page, 
+                        page_size, 
+                        &vendors)
+                };
             HttpResponse::Ok().json(response)
         }
         Err(error) => {
@@ -98,6 +106,7 @@ pub async fn get_list_project(
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
+    let is_report = query_parameter.is_report;
 
     let vendor_detail = match sqlx::query_as::<_, VendorDto>(
         "SELECT v.id,
@@ -169,11 +178,15 @@ pub async fn get_list_project(
                 .fetch_all(&state.db)
                 .await
             {
-                Ok(vendors) => {
-                    let response = page_response_extra_builder(page, 
-                        page_size, 
-                        &vendors, 
-                        json!({"vendor": vendor_detail}));
+                Ok(projects) => {
+                    let response = if is_report.unwrap_or(false) {
+                        json!({ "data": projects })
+                    } else {
+                        page_response_extra_builder(page, 
+                            page_size, 
+                            &projects, 
+                            json!({"vendor": vendor_detail}))
+                    };
                     HttpResponse::Ok().json(response)
                 }
                 Err(error) => {
@@ -198,6 +211,7 @@ pub async fn get_list_pm(
     let pm_status = query_parameter.pm_status.clone();
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
+    let is_report = query_parameter.is_report;
 
     let project_detail = match sqlx::query_as::<_, ProjectDto>(
         "WITH data_pm_verificated AS (
@@ -307,8 +321,11 @@ pub async fn get_list_pm(
             .await
         {
             Ok(pms) => {
-                let response = 
-                page_response_extra_builder(page, page_size, &pms, json!({"project": project_detail}));
+                let response = if is_report.unwrap_or(false) {
+                    json!({ "data": pms })
+                } else {
+                    page_response_extra_builder(page, page_size, &pms, json!({ "project": project_detail }))
+                };
                 HttpResponse::Ok().json(response)
             }
             Err(error) => {
@@ -1416,6 +1433,7 @@ pub async fn get_report(
                 ve.name AS vendor_name,
                 pr.id AS project_id,
                 pr.name AS project_name,
+                pr.project_type,
                 a.id AS project_id,
                 a.id AS pm_id,
                 a.pm_description AS pm_task,
@@ -1429,7 +1447,7 @@ pub async fn get_report(
                (CASE 
                     WHEN a.is_verified IS NULL THEN 'On Progress' 
                     WHEN a.is_verified IS TRUE THEN 'Verified' 
-                    WHEN a.is_verified IS FALSE THEN 'Need Revise' 
+                    WHEN a.is_verified IS FALSE THEN 'Need Revision' 
                 END) AS status,
                 v.username AS pm_verified_by,
                 CAST(a.verified_at AS CHAR) AS pm_verified_at,

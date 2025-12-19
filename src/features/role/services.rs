@@ -210,6 +210,7 @@ pub async fn get_role(
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
     let is_active = query_parameter.is_active.clone();
+    let is_report = query_parameter.is_report;
 
     let query_str = "SELECT r.id, r.name, r.can_add_role, r.can_edit_role, r.can_add_user, r.can_edit_user, 
                      r.can_add_vendor, r.can_edit_vendor, r.can_add_project, r.can_edit_project, 
@@ -238,7 +239,13 @@ pub async fn get_role(
         .await
     {
         Ok(roles) => {
-            let response = page_response_builder(page, page_size, &roles);
+             let response = if is_report.unwrap_or(false) {
+                    json!({ "data": roles })
+                } else {
+                    page_response_builder(page, 
+                        page_size, 
+                        &roles)
+                };
             HttpResponse::Ok().json(response)
         }
         Err(error) => {

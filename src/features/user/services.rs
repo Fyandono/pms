@@ -27,6 +27,8 @@ pub async fn get_user(
     let name_filter = query_parameter.name.clone().unwrap_or("".to_string());
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
+    let is_report = query_parameter.is_report;
+    
     match sqlx::query_as::<_, UserDto>(
         "SELECT a.id, 
         a.name, 
@@ -51,7 +53,13 @@ pub async fn get_user(
     .await
     {
         Ok(users) => {
-            let response = page_response_builder(page, page_size, &users);
+            let response = if is_report.unwrap_or(false) {
+                    json!({ "data": users })
+                } else {
+                    page_response_builder(page, 
+                        page_size, 
+                        &users)
+                };
             HttpResponse::Ok().json(response)
         }
         Err(error) => {

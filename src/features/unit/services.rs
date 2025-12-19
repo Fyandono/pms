@@ -7,7 +7,7 @@ use actix_web::{
     HttpResponse, Responder,
 };
 use serde_json::json;
-use sqlx::{self};
+use sqlx::{self, query};
 use crate::features::user::services::{AuthClaims};
 use crate::features::unit::model::{Unit, UnitDto, UnitQuery};
 use crate::util::page_response_builder::{page_response_builder};
@@ -134,6 +134,7 @@ pub async fn get_unit(
     let page = query_parameter.page;
     let page_size = query_parameter.page_size;
     let is_active = query_parameter.is_active.clone();
+    let is_report = query_parameter.is_report;
 
     // MySQL SELECT: Use '?' placeholders, LIKE CONCAT for filtering, and the robust IS NULL pattern
     let query_str = "SELECT un.id, un.name, un.is_active, 
@@ -162,7 +163,13 @@ pub async fn get_unit(
         .await
     {
         Ok(units) => {
-            let response = page_response_builder(page, page_size, &units);
+            let response = if is_report.unwrap_or(false) {
+                    json!({ "data": units })
+                } else {
+                    page_response_builder(page, 
+                        page_size, 
+                        &units)
+                };
             HttpResponse::Ok().json(response)
         }
         Err(error) => {

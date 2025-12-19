@@ -1,16 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(sqlx::FromRow, Debug, Serialize)]
-pub struct User {
-    pub id: String,
-    pub name: String,
-    pub username: String,
-    pub password_hash: String,
-    pub role_id: i32,
-    pub role: String,
-    pub is_active: bool
-}
-
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub name: String,
@@ -135,4 +124,5 @@ pub struct UserQuery {
     pub name: Option<String>,
     pub page: i32,
     pub page_size: i32,
+    pub is_report: Option<bool>
 }
